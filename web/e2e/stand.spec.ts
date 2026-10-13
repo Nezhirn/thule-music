@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { login } from "./api";
+import { expect, test, type Response } from "./test";
+import { ADMIN, login, signIn } from "./api";
 import library from "./stack/library.json" with { type: "json" };
 
 test("the scan imports the generated library", async ({ baseURL }) => {
@@ -39,4 +39,33 @@ test("audio streams through the web origin and plays in the browser", async ({ p
     return audio.duration;
   }, stream!.url);
   expect(duration).toBeCloseTo(track.duration_ms / 1000, 0);
+});
+
+test("the server serves the app as in production", async ({ page, request }) => {
+  await signIn(page, ADMIN);
+  const assets: Response[] = [];
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.startsWith("/assets/")) assets.push(response);
+  });
+  // A page of the app opened by its address: the server answers with the app.
+  const document = await page.goto("/albums");
+  const headers = await document!.allHeaders();
+  expect(headers["content-security-policy"]).toContain("default-src 'self'");
+  expect(headers["cache-control"]).toBe("no-cache");
+  await expect(page.getByRole("heading", { level: 1, name: "Albums" })).toBeVisible();
+
+  // The build's files: compressed in advance, cached for good.
+  expect(assets.length).toBeGreaterThanOrEqual(3);
+  for (const asset of assets) {
+    const { "content-encoding": encoding, "cache-control": cache } = await asset.allHeaders();
+    expect(cache, asset.url()).toBe("public, max-age=31536000, immutable");
+    expect(encoding, asset.url()).toBe("br");
+  }
+
+  expect((await request.get("/favicon.svg")).headers()["content-type"]).toBe("image/svg+xml");
+  for (const path of ["/assets/gone-1234.js", "/api/v1/no-such-thing"]) {
+    const missing = await request.get(path);
+    expect(missing.status(), path).toBe(404);
+    expect(await missing.json()).toMatchObject({ code: "not_found" });
+  }
 });

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { ADMIN } from "./api";
 
 // A Russian browser: the first-run page follows the device language.

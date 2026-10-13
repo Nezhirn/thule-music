@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { accountButton, apiClient, createUser, signedIn, signIn, signOut } from "./api";
 
 const REFRESH_TOKEN_KEY = "thule.refreshToken";

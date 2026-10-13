@@ -1,4 +1,4 @@
-import { expect, test as setup } from "@playwright/test";
+import { expect, test as setup } from "./test";
 import { apiClient, login } from "./api";
 
 setup("import the library", async ({ baseURL }) => {

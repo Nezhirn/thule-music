@@ -109,6 +109,8 @@ export function mockAdmin({
       const name = await (form.get("files") as File).text();
       const file = { name };
       record(request, { folder, name });
+      // Files named "readonly ..." find the library mounted read-only.
+      if (file.name.startsWith("readonly")) return apiError("library_not_writable", 503);
       // Files named "dup ..." are in the library already.
       const duplicate = file.name.startsWith("dup");
       const path = duplicate

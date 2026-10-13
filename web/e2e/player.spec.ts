@@ -1,6 +1,6 @@
 // The player against the real server, with real audio: Chromium plays the generated library
 // (Opus transcodes of the FLAC and Ogg albums, the MP3s as they are).
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./test";
 import { expectAccessible } from "./a11y";
 import { createUser, login, signIn, type Account } from "./api";
 

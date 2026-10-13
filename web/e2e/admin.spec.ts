@@ -2,7 +2,7 @@
 // album folder (with its cover and lyrics) and files that are copies or not music, the
 // errors of background work, and the users. Runs after the other tests (see the config):
 // the uploaded album would change what they count.
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expectAccessible } from "./a11y";

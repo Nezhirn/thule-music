@@ -1,6 +1,6 @@
 // Search against the real server: as you type, by kind, misspelt, from the keyboard; and
 // the lyrics of the playing track.
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { expectAccessible } from "./a11y";
 import { createUser, signIn } from "./api";
 

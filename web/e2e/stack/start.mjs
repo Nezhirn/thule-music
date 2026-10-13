@@ -1,6 +1,7 @@
 // Runs the backend for the E2E tests (started by Playwright as a webServer): resets the
-// scratch schema, generates the music library, then starts the API and the worker against
-// them. Playwright kills the whole process group when the run ends.
+// scratch schema, generates the music library and builds the app, then starts the API
+// (serving the app, as in production) and the worker. Playwright kills the whole process
+// group when the run ends.
 //
 // Backend logs go to .e2e/logs/ so they don't drown the test report; if a process dies, the
 // tail of its log is printed.
@@ -11,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { generateLibrary } from "./library.mjs";
 
 const stand = fileURLToPath(new URL("../../.e2e/", import.meta.url));
+const web = fileURLToPath(new URL("../../", import.meta.url));
 const backend = fileURLToPath(new URL("../../../backend/", import.meta.url));
 const python = process.env.THULE_PYTHON ?? `${backend}.venv/bin/python`;
 const schema = process.env.THULE_E2E_SCHEMA ?? "thule_e2e";
@@ -29,12 +31,14 @@ await generateLibrary(`${stand}library`);
 await rm(`${stand}library/uploads`, { recursive: true, force: true });
 await rm(`${stand}data`, { recursive: true, force: true });
 await mkdir(`${stand}logs`, { recursive: true });
+execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: web, stdio: "inherit" });
 
 const env = {
   ...process.env,
   THULE_DB_SCHEMA: schema,
   THULE_LIBRARY_PATH: `${stand}library`,
   THULE_DATA_PATH: `${stand}data`,
+  THULE_WEB_PATH: `${web}dist`,
   THULE_SECRET_KEY: "e2e-only-secret-key-0123456789abcdef0123456789",
   THULE_LRCLIB_ENABLED: "false",
 };

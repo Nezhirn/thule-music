@@ -164,6 +164,25 @@ test("uploaded files are followed until they are in the library", async () => {
   expect(screen.queryByRole("region", { name: "Uploaded files" })).toBeNull();
 });
 
+test("an upload the server can't store says why", async () => {
+  mockAccount();
+  mockAdmin();
+  const { user, container } = renderSignedIn("/admin/uploads");
+  await screen.findByRole("region", { name: "Upload music" });
+  const input = container.querySelector<HTMLInputElement>('input[type="file"][multiple]')!;
+  await user.upload(
+    input,
+    new File(["readonly One.mp3"], "readonly One.mp3", { type: "audio/mpeg" }),
+  );
+  const list = await screen.findByRole("region", { name: "Uploaded files" });
+  expect(
+    await within(list).findByText(
+      "The server can't write to the music folder: check that folder's owner and permissions.",
+    ),
+  ).toBeVisible();
+  expect(within(list).getByRole("button", { name: "Upload readonly One.mp3 again" })).toBeVisible();
+});
+
 test("users: who they are, a new one, a role, a password, signing out, deleting", async () => {
   mockAccount();
   const admin = mockAdmin();

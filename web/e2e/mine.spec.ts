@@ -1,5 +1,5 @@
 // The user's own music against the real server: likes and favourites, playlists, history.
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { expectAccessible } from "./a11y";
 import { createUser, login, signIn, type Account } from "./api";
 

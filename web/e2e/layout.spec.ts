@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { expectAccessible } from "./a11y";
 import { accountButton, createUser, signIn } from "./api";
 

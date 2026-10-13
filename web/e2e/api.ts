@@ -1,6 +1,6 @@
 // Typed API access for E2E tests: the same generated types and client library as the app,
 // through the web origin's /api proxy.
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page } from "./test";
 import createClient from "openapi-fetch";
 import type { paths } from "../src/api/schema";
 
