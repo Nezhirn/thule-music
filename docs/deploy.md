@@ -115,7 +115,7 @@ curl http://127.0.0.1:8000/api/v1/health
 
 ## Без Docker
 
-Сервер ставится как обычный Python-пакет (см. [README](../README.md#бэкенд)), веб-клиент собирается `npm run build` в `web/dist`. Команды:
+Сервер ставится как обычный Python-пакет (см. [development.md](development.md#бэкенд)), веб-клиент собирается `npm run build` в `web/dist`. Команды:
 - `thule serve` — приложение и API, с `THULE_WEB_PATH=…/web/dist`;
 - `thule worker` — фоновые задачи;
 - `thule migrate` — только миграции.
