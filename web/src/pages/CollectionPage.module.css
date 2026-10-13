@@ -1,0 +1,15 @@
+/* The artwork of a list without a cover of its own (Liked songs, an empty playlist). */
+.art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 35%, #000));
+  color: var(--accent-on);
+}
+
+.art svg {
+  width: 38%;
+  height: 38%;
+  fill: currentColor;
+}

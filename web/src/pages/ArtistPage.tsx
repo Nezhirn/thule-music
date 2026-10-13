@@ -9,6 +9,7 @@ import { PageFailed, PageLoading } from "../catalog/PageStatus";
 import { artistQuery, type Album } from "../catalog/queries";
 import { TrackTable } from "../catalog/TrackTable";
 import { useI18n } from "../i18n";
+import { FavouriteButton } from "../likes/LikeButton";
 import { usePlayerControls } from "../player/context";
 import { PlayButton } from "../player/PlayButton";
 import { Button } from "../ui/Button";
@@ -55,16 +56,19 @@ export function ArtistPage() {
           />
         }
         actions={
-          popular.length > 0 && (
-            <>
-              <PlayButton source={source} name={artist.name} tracks={() => popular} />
-              <IconButton
-                icon={Shuffle}
-                label={t.player.shuffleItem(artist.name)}
-                onClick={() => player.play(popular, { shuffle: true, source })}
-              />
-            </>
-          )
+          <>
+            {popular.length > 0 && (
+              <>
+                <PlayButton source={source} name={artist.name} tracks={() => popular} />
+                <IconButton
+                  icon={Shuffle}
+                  label={t.player.shuffleItem(artist.name)}
+                  onClick={() => player.play(popular, { shuffle: true, source })}
+                />
+              </>
+            )}
+            <FavouriteButton kind="artist" item={artist} name={artist.name} />
+          </>
         }
       >
         {artist.album_count > 0 && <span>{t.catalog.albums(artist.album_count)}</span>}

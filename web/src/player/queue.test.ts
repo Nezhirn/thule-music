@@ -102,3 +102,15 @@ test("keys are unique", () => {
   const keys = q.addToQueue(q.newQueue(ALL, 0, false), ALL).items.map((item) => item.key);
   expect(new Set(keys).size).toBe(10);
 });
+
+test("updating a track changes every copy of it, in both orders", () => {
+  const queue = q.shuffled(q.addToQueue(q.newQueue(ALL, 1, false), [B]), low); // A B C D E B
+  const liked = q.updateTrack(queue, B.id, { liked: true });
+  const likes = (items: q.QueueItem[]) =>
+    items.filter((item) => item.track.liked).map((item) => item.key);
+  const copies = queue.items.filter((item) => item.track.id === B.id).map((item) => item.key);
+  expect(likes(liked.items).sort()).toEqual([...copies].sort());
+  expect(likes(liked.unshuffled!).sort()).toEqual([...copies].sort());
+  expect(liked.current).toBe(queue.current);
+  expect(q.updateTrack(queue, "not queued", { liked: true })).toBe(queue);
+});

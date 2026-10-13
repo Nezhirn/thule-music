@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { ListMusic } from "lucide-react";
+import { ListMusic, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router";
 import { useI18n } from "../i18n";
+import { NewPlaylist } from "../playlists/NewPlaylist";
+import { playlistsQuery } from "../playlists/queries";
+import { IconButton } from "../ui/IconButton";
 import { Logo } from "../ui/Logo";
-import { playlistsQuery } from "./queries";
 import { LIBRARY_SECTIONS, SECTIONS, sectionName, type SectionId } from "./sections";
 import styles from "./Sidebar.module.css";
 
@@ -25,7 +27,22 @@ export function Sidebar({ admin }: { admin: boolean }) {
             <SectionLink key={id} id={id} />
           ))}
         </Group>
-        <Group title={t.nav.playlists}>
+        <Group
+          title={t.nav.playlists}
+          action={
+            <NewPlaylist>
+              {(open) => (
+                <IconButton
+                  icon={Plus}
+                  label={t.playlists.new}
+                  size="sm"
+                  className={styles.add}
+                  onClick={open}
+                />
+              )}
+            </NewPlaylist>
+          }
+        >
           <Playlists />
         </Group>
         {admin && (
@@ -38,10 +55,22 @@ export function Sidebar({ admin }: { admin: boolean }) {
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+function Group({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  /** A button by the title. */
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className={styles.group}>
-      <h2 className={styles.groupTitle}>{title}</h2>
+      <div className={styles.groupHead}>
+        <h2 className={styles.groupTitle}>{title}</h2>
+        {action}
+      </div>
       <ul className={styles.list}>{children}</ul>
     </div>
   );

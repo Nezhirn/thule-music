@@ -41,11 +41,18 @@ test("the sidebar leads to every section and marks the current one", async () =>
 
 test("the sidebar lists the user's playlists", async () => {
   mockAccount();
-  server.use(http.get(url("/api/v1/playlists"), () => HttpResponse.json([PLAYLIST])));
+  server.use(
+    http.get(url("/api/v1/playlists"), () => HttpResponse.json([PLAYLIST])),
+    http.get(url(`/api/v1/playlists/${PLAYLIST.id}`), () =>
+      HttpResponse.json({ ...PLAYLIST, items: [] }),
+    ),
+  );
   const { user } = renderSignedIn("/");
   await screen.findByRole("navigation", { name: "Main" });
-  await user.click(await within(sidebar()).findByRole("link", { name: "Road trip" }));
-  expect(screen.getByRole("heading", { level: 1, name: "Playlists" })).toBeInTheDocument();
+  const link = await within(sidebar()).findByRole("link", { name: "Road trip" });
+  await user.click(link);
+  expect(await screen.findByRole("heading", { level: 1, name: "Road trip" })).toBeInTheDocument();
+  expect(link).toHaveAttribute("aria-current", "page");
 });
 
 test("the sidebar says when there are no playlists, or they didn't load", async () => {

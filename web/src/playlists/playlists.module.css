@@ -1,0 +1,101 @@
+.form {
+  display: grid;
+  gap: 16px;
+}
+
+/* "Add to playlist": the playlists to pick from. */
+.choices {
+  display: grid;
+  gap: 2px;
+  max-height: min(360px, 50vh);
+  margin: 0 -8px;
+  overflow-y: auto;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--hover);
+}
+
+.choiceText {
+  display: grid;
+  min-width: 0;
+}
+
+.choiceName {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choiceCount {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* A playlist's picture: the covers of its first four albums, or the first, or a note. */
+.mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--selected);
+}
+
+.mosaic > * {
+  border-radius: 0;
+}
+
+.small {
+  border-radius: 6px;
+}
+
+.blank {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--selected), var(--hover));
+  color: var(--text-muted);
+}
+
+.blank svg {
+  width: 38%;
+  height: 38%;
+}
+
+.small.blank {
+  border-radius: 6px;
+}
+
+.plus {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+}
+
+.end {
+  display: flex;
+  justify-content: flex-end;
+}

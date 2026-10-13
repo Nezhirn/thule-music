@@ -43,3 +43,7 @@
   font-size: 13px;
   color: var(--danger);
 }
+
+.area {
+  resize: vertical;
+}

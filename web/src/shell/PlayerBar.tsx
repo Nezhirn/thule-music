@@ -1,6 +1,7 @@
 import { ListMusic, Music } from "lucide-react";
 import { Cover } from "../catalog/Cover";
 import { useI18n } from "../i18n";
+import { LikeButton } from "../likes/LikeButton";
 import { selectTrack, usePlayer } from "../player/context";
 import { Controls } from "../player/Controls";
 import { Progress } from "../player/Progress";
@@ -29,6 +30,7 @@ export function PlayerBar({
           <>
             <Cover id={track.album.cover_id} sizes="56px" className={styles.cover} />
             <TrackInfo track={track} />
+            <LikeButton track={track} />
           </>
         ) : (
           <>

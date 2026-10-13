@@ -5,11 +5,11 @@ import { EmptyState } from "../ui/EmptyState";
 import { PageHeader } from "../ui/PageHeader";
 
 /** A section that a later stage fills in. */
-export function PlaceholderPage({ section }: { section: SectionId | "playlists" }) {
+export function PlaceholderPage({ section }: { section: SectionId }) {
   const { t } = useI18n();
   return (
     <>
-      <PageHeader title={section === "playlists" ? t.nav.playlists : sectionName(t, section)} />
+      <PageHeader title={sectionName(t, section)} />
       <EmptyState icon={Construction} title={t.placeholder.title}>
         {t.placeholder.text}
       </EmptyState>

@@ -1,5 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { expectAccessible } from "./a11y";
 import { accountButton, createUser, signIn } from "./api";
 
 test("the layout follows the width of the screen", async ({ page, baseURL }) => {
@@ -33,18 +33,6 @@ test("the layout follows the width of the screen", async ({ page, baseURL }) => 
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
-
-async function expectAccessible(page: Page) {
-  const { violations } = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-    .analyze();
-  expect(
-    violations.map(({ id, nodes }) => ({
-      id,
-      targets: nodes.map((node) => node.target.join(" ")),
-    })),
-  ).toEqual([]);
-}
 
 for (const [device, viewport] of [
   ["desktop", { width: 1440, height: 900 }],

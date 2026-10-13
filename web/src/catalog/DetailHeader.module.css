@@ -40,6 +40,17 @@
   -webkit-line-clamp: 3;
 }
 
+.description {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .meta {
   display: flex;
   flex-wrap: wrap;

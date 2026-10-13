@@ -51,19 +51,21 @@ export const artistQuery = (id: string) =>
     staleTime,
   });
 
-interface Paged<T> {
+export interface Paged<T> {
   items: T[];
   total: number;
   limit: number;
   offset: number;
 }
 
-const paging = {
+/** Paging by offset: the next page starts after the items so far, until there are `total`. */
+export const offsetPaging = {
   initialPageParam: 0,
   getNextPageParam: <T>(last: Paged<T>) =>
     last.offset + last.items.length < last.total ? last.offset + last.items.length : undefined,
-  staleTime,
 };
+
+const paging = { ...offsetPaging, staleTime };
 
 export const albumsQuery = (sort: AlbumSort, genre: string | null) =>
   infiniteQueryOptions({

@@ -3,6 +3,7 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { useLocation } from "react-router";
 import { Cover } from "../catalog/Cover";
 import { useI18n } from "../i18n";
+import { LikeButton } from "../likes/LikeButton";
 import { selectTrack, usePlayer } from "../player/context";
 import { Controls } from "../player/Controls";
 import { Progress } from "../player/Progress";
@@ -58,7 +59,10 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
             sizes="(max-width: 899px) 86vw, 420px"
             className={styles.cover}
           />
-          <TrackInfo track={track} large />
+          <div className={styles.info}>
+            <TrackInfo track={track} large />
+            <LikeButton track={track} size="md" />
+          </div>
           <Progress />
           <Controls large />
           <section className={styles.queue} aria-labelledby="full-up-next">

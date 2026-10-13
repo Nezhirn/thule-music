@@ -40,8 +40,26 @@
   color: var(--text-muted);
 }
 
-.heading {
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 28px 0 8px;
+}
+
+.plus {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.cover {
+  flex: none;
+  width: 40px;
+}
+
+.heading {
   font-size: var(--text-lg);
   font-weight: 700;
 }

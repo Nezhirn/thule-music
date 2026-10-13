@@ -1,0 +1,3 @@
+.toggle[aria-pressed="true"] svg {
+  fill: currentColor;
+}

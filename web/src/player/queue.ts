@@ -140,3 +140,18 @@ export function step(queue: Queue, by: 1 | -1, wrap: boolean): Queue | null {
   if (index >= 0 && index < count) return { ...queue, current: index };
   return wrap ? { ...queue, current: (index + count) % count } : null;
 }
+
+/** The queue with the track `id` changed (liked) wherever it is queued; the same queue if it
+ * isn't. */
+export function updateTrack(queue: Queue, id: string, change: Partial<Track>): Queue {
+  if (!queue.items.some((item) => item.track.id === id)) return queue;
+  const update = (items: QueueItem[]) =>
+    items.map((item) =>
+      item.track.id === id ? { ...item, track: { ...item.track, ...change } } : item,
+    );
+  return {
+    ...queue,
+    items: update(queue.items),
+    unshuffled: queue.unshuffled && update(queue.unshuffled),
+  };
+}

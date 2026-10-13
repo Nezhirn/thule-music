@@ -35,14 +35,31 @@ td {
   background: var(--hover);
 }
 
-.disc th {
+.group th {
   padding: 20px 12px 6px;
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
 
-tbody:first-of-type .disc th {
+tbody:first-of-type .group th {
   padding-top: 12px;
+}
+
+/* Rows being dragged to another place: the row, and the line where it would land. */
+.row[draggable="true"] {
+  cursor: grab;
+}
+
+.row[data-dragged] {
+  opacity: 0.5;
+}
+
+.row[data-drop="before"] td {
+  box-shadow: inset 0 2px var(--accent-text);
+}
+
+.row[data-drop="after"] td {
+  box-shadow: inset 0 -2px var(--accent-text);
 }
 
 .number {
@@ -157,21 +174,33 @@ tbody:first-of-type .disc th {
   text-align: right;
 }
 
-/* The menu button shows on its row; always on touch screens. */
-.more {
+/* The menu button and the heart show on their row; always on touch screens, and the heart
+   of a liked track always. */
+.more,
+.heart {
   opacity: 0;
 }
 
 .row:hover .more,
 .row:focus-within .more,
-.more[aria-expanded="true"] {
+.more[aria-expanded="true"],
+.row:hover .heart,
+.row:focus-within .heart,
+.heart[aria-pressed="true"] {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .more {
+  .more,
+  .heart {
     opacity: 1;
   }
+}
+
+.like {
+  width: 44px;
+  padding-inline: 0;
+  text-align: center;
 }
 
 .duration {
@@ -266,5 +295,10 @@ tbody:first-of-type .disc th {
 
   .actions {
     width: 40px;
+  }
+
+  /* No room: the menu likes and unlikes. */
+  .like {
+    display: none;
   }
 }

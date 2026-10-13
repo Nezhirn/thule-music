@@ -9,8 +9,10 @@ import { albumQuery, artistQuery, type Album } from "../catalog/queries";
 import { Shelf } from "../catalog/Shelf";
 import { TrackTable } from "../catalog/TrackTable";
 import { useI18n } from "../i18n";
+import { FavouriteButton } from "../likes/LikeButton";
 import { usePlayerControls } from "../player/context";
 import { PlayButton } from "../player/PlayButton";
+import { CollectionActions } from "../player/TrackActions";
 import { IconButton } from "../ui/IconButton";
 import styles from "./CatalogPage.module.css";
 
@@ -41,16 +43,20 @@ export function AlbumPage() {
         palette={album.cover_palette}
         art={<Cover id={album.cover_id} sizes="(max-width: 899px) 64vw, 232px" />}
         actions={
-          album.tracks.length > 0 && (
-            <>
-              <PlayButton source={source} name={album.title} tracks={() => album.tracks} />
-              <IconButton
-                icon={Shuffle}
-                label={t.player.shuffleItem(album.title)}
-                onClick={() => player.play(album.tracks, { shuffle: true, source })}
-              />
-            </>
-          )
+          <>
+            {album.tracks.length > 0 && (
+              <>
+                <PlayButton source={source} name={album.title} tracks={() => album.tracks} />
+                <IconButton
+                  icon={Shuffle}
+                  label={t.player.shuffleItem(album.title)}
+                  onClick={() => player.play(album.tracks, { shuffle: true, source })}
+                />
+              </>
+            )}
+            <FavouriteButton kind="album" item={album} name={album.title} />
+            <CollectionActions name={album.title} tracks={album.tracks} />
+          </>
         }
       >
         <Link to={`/artists/${album.artist.id}`}>{album.artist.name}</Link>

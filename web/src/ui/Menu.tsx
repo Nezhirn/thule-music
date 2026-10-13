@@ -13,7 +13,8 @@ import {
 import { Link } from "react-router";
 import styles from "./Menu.module.css";
 
-const CloseContext = createContext<() => void>(() => {});
+/** Closes the menu; `refocus` gives the focus back to its button. */
+const CloseContext = createContext<(refocus: boolean) => void>(() => {});
 
 interface Props {
   /** The accessible name of the button. */
@@ -108,7 +109,7 @@ export function Menu({ label, trigger, header, triggerClassName, children }: Pro
         <div ref={popup} className={styles.popup}>
           {header && <div className={styles.header}>{header}</div>}
           <div ref={menu} id={id} role="menu" aria-label={label} onKeyDown={onMenuKey}>
-            <CloseContext value={() => close(false)}>{children}</CloseContext>
+            <CloseContext value={close}>{children}</CloseContext>
           </div>
         </div>
       )}
@@ -127,7 +128,13 @@ export function MenuLink({
 }) {
   const close = useContext(CloseContext);
   return (
-    <Link to={to} role="menuitem" tabIndex={-1} className={styles.item} onClick={close}>
+    <Link
+      to={to}
+      role="menuitem"
+      tabIndex={-1}
+      className={styles.item}
+      onClick={() => close(false)}
+    >
       <Icon className={styles.icon} />
       {children}
     </Link>
@@ -151,7 +158,9 @@ export function MenuItem({
       tabIndex={-1}
       className={styles.item}
       onClick={() => {
-        close();
+        // Back on the menu's button, as an action leaves it (and a dialog it opens returns
+        // there).
+        close(true);
         onSelect();
       }}
     >

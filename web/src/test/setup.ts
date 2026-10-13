@@ -3,6 +3,7 @@ import "./browser";
 import { focusManager } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { getAccessToken } from "../auth/tokens";
+import { toastStore } from "../ui/toast";
 import { server } from "./server";
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -14,6 +15,7 @@ afterEach(async () => {
   vi.useRealTimers();
   focusManager.setFocused(undefined);
   localStorage.clear();
+  toastStore.setState({ message: null, count: 0 });
   document.documentElement.removeAttribute("style");
   document.documentElement.removeAttribute("data-blur");
   // With the refresh token gone, this drops the access token the module keeps in memory, so

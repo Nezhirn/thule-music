@@ -1,7 +1,8 @@
 import { Clock, Pause, Play } from "lucide-react";
-import type { MouseEvent } from "react";
+import { useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useI18n } from "../i18n";
+import { LikeButton } from "../likes/LikeButton";
 import { selectTrack, usePlayer, usePlayerControls } from "../player/context";
 import type { Source } from "../player/player";
 import { TrackActions } from "../player/TrackActions";
@@ -17,8 +18,11 @@ interface Props {
   label: string;
   /** Where the tracks come from: the album or artist whose play button shows them playing. */
   source: Source;
-  /** What playing a row queues, if not just the rows (an artist's top tracks, partly shown). */
+  /** What playing a row queues, if more than the rows: they are its beginning (an artist's
+   * top tracks, partly shown). */
   queue?: Track[];
+  /** The rows' keys, where a track can be listed twice (a playlist, the history). */
+  keys?: string[];
   /** The numbers in the first column: track numbers (an album) or positions (a ranking). */
   numbers?: "track" | "position";
   /** The album's artist: credits that are just them aren't repeated on every row. */
@@ -27,42 +31,101 @@ interface Props {
   withAlbum?: boolean;
   /** A heading row per disc, when there are several. */
   byDisc?: boolean;
+  /** A heading row over each run of rows with the same heading (the days of the history). */
+  groupBy?(track: Track, index: number): string;
+  /** More items for the row's menu (taking it out of a playlist). */
+  actions?(index: number): ReactNode;
+  /** Rows can be dragged to another place: the row at `from` goes to `to`. */
+  onMove?(from: number, to: number): void;
+}
+
+interface Group {
+  heading: string | null;
+  rows: number[];
 }
 
 /** Tracks in a table: number (a play button on the row in focus or under the pointer), title
- * with the credited artists, album, length, a menu. A double click (a tap on touch screens)
- * plays the row too. */
+ * with the credited artists, album, like, length, a menu. A double click (a tap on touch
+ * screens) plays the row too. */
 export function TrackTable({
   tracks,
   label,
   source,
   queue = tracks,
+  keys,
   numbers,
   albumArtistId,
   withAlbum,
   byDisc,
+  groupBy,
+  actions,
+  onMove,
 }: Props) {
   const { t } = useI18n();
   const player = usePlayerControls();
   const currentId = usePlayer((state) => selectTrack(state)?.id ?? null);
   const playing = usePlayer((state) => state.playing);
-  const discs = byDisc ? groupByDisc(tracks) : [{ disc: null, tracks }];
-  const columns = 4 + Number(Boolean(withAlbum));
-  const positions = new Map(tracks.map((track, i) => [track.id, i + 1]));
+  const [drag, setDrag] = useState<{ from: number; to: number | null } | null>(null);
+  const columns = 5 + Number(Boolean(withAlbum));
 
-  const play = (track: Track) => {
-    if (track.id === currentId) {
+  const discs = byDisc
+    ? group(tracks, (track) => (track.disc_no === null ? null : t.catalog.disc(track.disc_no)))
+    : [];
+  const groups: Group[] = groupBy
+    ? group(tracks, groupBy)
+    : discs.length > 1
+      ? discs
+      : [{ heading: null, rows: tracks.map((_, i) => i) }];
+
+  const play = (index: number) => {
+    if (tracks[index]?.id === currentId) {
       player.toggle();
       return;
     }
-    const start = queue.findIndex((queued) => queued.id === track.id);
-    player.play(start === -1 ? [track] : queue, { start: Math.max(start, 0), source });
+    player.play(queue, { start: index, source });
   };
   // Clicks on the row itself, not on its links and buttons.
-  const onRow = (event: MouseEvent, track: Track, touch: boolean) => {
+  const onRow = (event: MouseEvent, index: number, touch: boolean) => {
     if ((event.target as Element).closest("a, button")) return;
     if (touch !== window.matchMedia("(hover: none)").matches) return;
-    play(track);
+    play(index);
+  };
+
+  const dragging = (index: number) =>
+    onMove && {
+      draggable: true,
+      onDragStart(event: DragEvent<HTMLTableRowElement>) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", tracks[index]?.title ?? "");
+        event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
+        setDrag({ from: index, to: null });
+      },
+      onDragOver(event: DragEvent<HTMLTableRowElement>) {
+        if (!drag) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        const { top, height } = event.currentTarget.getBoundingClientRect();
+        const to = event.clientY < top + height / 2 ? index : index + 1;
+        if (drag.to !== to) setDrag({ ...drag, to });
+      },
+      onDrop(event: DragEvent<HTMLTableRowElement>) {
+        if (!drag || drag.to === null) return;
+        event.preventDefault();
+        // Where it lands once taken out of its place.
+        const to = drag.to > drag.from ? drag.to - 1 : drag.to;
+        if (to !== drag.from) onMove(drag.from, to);
+        setDrag(null);
+      },
+      onDragEnd: () => setDrag(null),
+    };
+  // The line showing where a dragged row would land: above a row, or below the last.
+  const dropMark = (index: number) => {
+    if (!drag || drag.to === null || drag.to === drag.from || drag.to === drag.from + 1) {
+      return undefined;
+    }
+    if (drag.to === index) return "before";
+    if (drag.to === tracks.length && index === tracks.length - 1) return "after";
+    return undefined;
   };
 
   return (
@@ -83,6 +146,9 @@ export function TrackTable({
               {t.catalog.columns.album}
             </th>
           )}
+          <th scope="col" className={styles.like}>
+            <span className="visually-hidden">{t.catalog.columns.liked}</span>
+          </th>
           <th scope="col" className={styles.duration}>
             <Clock className={styles.clock} aria-hidden="true" />
             <span className="visually-hidden">{t.catalog.columns.duration}</span>
@@ -92,29 +158,34 @@ export function TrackTable({
           </th>
         </tr>
       </thead>
-      {discs.map(({ disc, tracks: rows }) => (
-        <tbody key={disc ?? "all"}>
-          {disc !== null && discs.length > 1 && (
-            <tr className={styles.disc}>
+      {groups.map(({ heading, rows }, g) => (
+        <tbody key={g}>
+          {heading !== null && (
+            <tr className={styles.group}>
               <th scope="row" colSpan={columns}>
-                {t.catalog.disc(disc)}
+                {heading}
               </th>
             </tr>
           )}
-          {rows.map((track) => {
+          {rows.map((index) => {
+            const track = tracks[index]!;
             const credits = track.artists.length ? track.artists : [track.artist];
             const showCredits =
               !albumArtistId || credits.some((artist) => artist.id !== albumArtistId);
             const current = track.id === currentId;
             const number =
-              numbers === "track" ? (track.track_no ?? "") : numbers && positions.get(track.id);
+              numbers === "track" ? (track.track_no ?? "") : numbers === "position" && index + 1;
             return (
               <tr
-                key={track.id}
+                key={keys?.[index] ?? track.id}
                 className={styles.row}
                 aria-current={current || undefined}
-                onDoubleClick={(event) => onRow(event, track, false)}
-                onClick={(event) => onRow(event, track, true)}
+                data-key={keys?.[index]}
+                data-drop={dropMark(index)}
+                data-dragged={drag?.from === index || undefined}
+                onDoubleClick={(event) => onRow(event, index, false)}
+                onClick={(event) => onRow(event, index, true)}
+                {...dragging(index)}
               >
                 <td className={styles.number}>
                   <div className={styles.slot}>
@@ -133,7 +204,7 @@ export function TrackTable({
                       aria-label={
                         current && playing ? t.player.pause : t.player.playItem(track.title)
                       }
-                      onClick={() => play(track)}
+                      onClick={() => play(index)}
                     >
                       {current && playing ? <Pause /> : <Play />}
                     </button>
@@ -167,9 +238,14 @@ export function TrackTable({
                     </Link>
                   </td>
                 )}
+                <td className={styles.like}>
+                  <LikeButton track={track} className={styles.heart} />
+                </td>
                 <td className={styles.duration}>{duration(track.duration_ms)}</td>
                 <td className={styles.actions}>
-                  <TrackActions track={track} className={styles.more} />
+                  <TrackActions track={track} className={styles.more}>
+                    {actions?.(index)}
+                  </TrackActions>
                 </td>
               </tr>
             );
@@ -180,12 +256,14 @@ export function TrackTable({
   );
 }
 
-function groupByDisc(tracks: Track[]): { disc: number | null; tracks: Track[] }[] {
-  const groups: { disc: number | null; tracks: Track[] }[] = [];
-  for (const track of tracks) {
+/** Runs of rows with the same heading. */
+function group(tracks: Track[], heading: (track: Track, index: number) => string | null) {
+  const groups: Group[] = [];
+  tracks.forEach((track, index) => {
+    const own = heading(track, index);
     const last = groups.at(-1);
-    if (last && last.disc === track.disc_no) last.tracks.push(track);
-    else groups.push({ disc: track.disc_no, tracks: [track] });
-  }
+    if (last && last.heading === own) last.rows.push(index);
+    else groups.push({ heading: own, rows: [index] });
+  });
   return groups;
 }

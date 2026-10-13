@@ -10,7 +10,7 @@ export type Repeat = "off" | "all" | "one";
 
 /** What the queue was started from, to show its play button as playing. */
 export interface Source {
-  type: "album" | "artist" | "tracks";
+  type: "album" | "artist" | "tracks" | "liked" | "playlist" | "history";
   id: string;
 }
 
@@ -98,6 +98,8 @@ export interface Player {
   addToQueue(tracks: Track[]): void;
   remove(key: string): void;
   clearUpcoming(): void;
+  /** Changes a queued track (its like), so the queue kept on the device has it too. */
+  updateTrack(id: string, change: Partial<Track>): void;
   setShuffle(on: boolean): void;
   setRepeat(repeat: Repeat): void;
   setVolume(volume: number): void;
@@ -422,6 +424,10 @@ export function createPlayer(deps: Deps): Player {
     },
     clearUpcoming() {
       set({ queue: queue.clearUpcoming(get().queue) });
+    },
+    updateTrack(id, change) {
+      const updated = queue.updateTrack(get().queue, id, change);
+      if (updated !== get().queue) set({ queue: updated });
     },
     setShuffle(on) {
       const q = get().queue;

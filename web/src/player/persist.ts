@@ -13,7 +13,14 @@ const VOLUME_KEY = "thule.volume";
 const POSITION_EVERY = 5000;
 
 const REPEATS: readonly Repeat[] = ["off", "all", "one"];
-const SOURCES: readonly Source["type"][] = ["album", "artist", "tracks"];
+const SOURCES: readonly Source["type"][] = [
+  "album",
+  "artist",
+  "tracks",
+  "liked",
+  "playlist",
+  "history",
+];
 
 function isSource(value: Partial<Source> | null | undefined): value is Source {
   return SOURCES.includes(value?.type as Source["type"]) && typeof value?.id === "string";

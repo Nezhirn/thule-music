@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Outlet, useLocation } from "react-router";
 import { useMe } from "../account/me";
 import { useI18n } from "../i18n";
+import { AddToPlaylistProvider } from "../playlists/AddToPlaylist";
 import { useFailureNotice, useSpaceToPlay } from "../player/hooks";
 import { Backdrop } from "../theme/Backdrop";
 import { Toast } from "../ui/Toast";
@@ -47,30 +48,32 @@ export function AppShell() {
 
   if (!me) return null;
   return (
-    <div className={styles.shell}>
-      <Backdrop />
-      <a href="#content" className={styles.skip}>
-        {t.shell.skipToContent}
-      </a>
-      <Sidebar admin={me.role === "admin"} />
-      <div
-        className={`glass ${styles.main}`}
-        style={{ "--page-tint": tint ?? "transparent" } as CSSProperties}
-      >
-        <div className={styles.tint} aria-hidden="true" />
-        <TopBar me={me} />
-        <main id="content" ref={main} tabIndex={-1} className={styles.content}>
-          <PageTintContext value={setTint}>
-            <Outlet />
-          </PageTintContext>
-        </main>
+    <AddToPlaylistProvider>
+      <div className={styles.shell}>
+        <Backdrop />
+        <a href="#content" className={styles.skip}>
+          {t.shell.skipToContent}
+        </a>
+        <Sidebar admin={me.role === "admin"} />
+        <div
+          className={`glass ${styles.main}`}
+          style={{ "--page-tint": tint ?? "transparent" } as CSSProperties}
+        >
+          <div className={styles.tint} aria-hidden="true" />
+          <TopBar me={me} />
+          <main id="content" ref={main} tabIndex={-1} className={styles.content}>
+            <PageTintContext value={setTint}>
+              <Outlet />
+            </PageTintContext>
+          </main>
+        </div>
+        <NowPlaying open={queueOpen} onClose={closeQueue} />
+        <PlayerBar queueOpen={queueOpen} onToggleQueue={() => setQueueOpen(!queueOpen)} />
+        <MiniPlayer onOpen={() => setPlayerOpen(true)} />
+        <MobileTabs />
+        <FullPlayer open={playerOpen} onClose={closePlayer} />
+        <Toast />
       </div>
-      <NowPlaying open={queueOpen} onClose={closeQueue} />
-      <PlayerBar queueOpen={queueOpen} onToggleQueue={() => setQueueOpen(!queueOpen)} />
-      <MiniPlayer onOpen={() => setPlayerOpen(true)} />
-      <MobileTabs />
-      <FullPlayer open={playerOpen} onClose={closePlayer} />
-      <Toast />
-    </div>
+    </AddToPlaylistProvider>
   );
 }

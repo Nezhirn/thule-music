@@ -5,6 +5,7 @@ import { unwrap } from "../api/errors";
 import { preferencesQuery } from "../auth/queries";
 import { useSession } from "../auth/session";
 import { homeQuery } from "../catalog/queries";
+import { historyQuery } from "../history/queries";
 import { PlayerContext } from "./context";
 import { connectMediaSession } from "./mediaSession";
 import { forgetSaved, keepSaved, loadSaved, loadVolume } from "./persist";
@@ -31,8 +32,9 @@ export function PlayerProvider({ children, audio }: { children: ReactNode; audio
         await unwrap(
           api.POST("/api/v1/me/plays", { body: { track_id: trackId, listened_ms: listenedMs } }),
         );
-        // "Recently played" on the home page.
+        // "Recently played" on the home page, and the history.
         void queryClient.invalidateQueries({ queryKey: homeQuery.queryKey });
+        void queryClient.invalidateQueries({ queryKey: historyQuery.queryKey });
       },
       quality: () => queryClient.getQueryData(preferencesQuery.queryKey)?.stream_quality ?? "high",
     });

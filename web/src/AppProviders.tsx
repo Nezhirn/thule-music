@@ -2,6 +2,7 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { SessionProvider } from "./auth/SessionProvider";
 import { I18nProvider } from "./i18n/I18nProvider";
+import { LikesProvider } from "./likes/LikesProvider";
 import type { AudioLike } from "./player/player";
 import { PlayerProvider } from "./player/PlayerProvider";
 import { ThemeProvider } from "./theme/ThemeProvider";
@@ -21,7 +22,9 @@ export function AppProviders({
       <I18nProvider>
         <SessionProvider>
           <PlayerProvider audio={audio}>
-            <ThemeProvider>{children}</ThemeProvider>
+            <LikesProvider>
+              <ThemeProvider>{children}</ThemeProvider>
+            </LikesProvider>
           </PlayerProvider>
         </SessionProvider>
       </I18nProvider>

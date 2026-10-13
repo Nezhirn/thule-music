@@ -27,6 +27,18 @@
   gap: 6px;
 }
 
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Over the title's line, not taller than it; lined up with the icons of the links under it. */
+.add {
+  margin: -8px 4px;
+}
+
 .groupTitle {
   padding: 0 12px;
   color: var(--text-muted);

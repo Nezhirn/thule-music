@@ -1,7 +1,7 @@
 // The player against the real server, with real audio: Chromium plays the generated library
 // (Opus transcodes of the FLAC and Ogg albums, the MP3s as they are).
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expectAccessible } from "./a11y";
 import { createUser, login, signIn, type Account } from "./api";
 
 const bar = (page: Page) => page.getByRole("region", { name: "Player" });
@@ -25,18 +25,6 @@ async function openAlbum(page: Page, title: string) {
   await page.goto("/albums?sort=title");
   await page.getByRole("link", { name: title, exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
-}
-
-async function expectAccessible(page: Page) {
-  const { violations } = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-    .analyze();
-  expect(
-    violations.map(({ id, nodes }) => ({
-      id,
-      targets: nodes.map((node) => node.target.join(" ")),
-    })),
-  ).toEqual([]);
 }
 
 let account: Account;

@@ -63,3 +63,13 @@
   text-align: left;
   font-size: var(--text-md);
 }
+
+.info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.info > :first-child {
+  flex: 1;
+}

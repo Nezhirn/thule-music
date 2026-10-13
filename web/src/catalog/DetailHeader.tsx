@@ -11,7 +11,9 @@ interface Props {
   title: string;
   art: ReactNode;
   palette: Schemas["CoverPalette"] | null;
-  /** Under the title: artist, year, length. */
+  /** Under the title: a playlist's description. */
+  description?: string | null;
+  /** Under that: artist, year, length. */
   children?: ReactNode;
   /** Buttons under that: play, shuffle. */
   actions?: ReactNode;
@@ -19,7 +21,7 @@ interface Props {
 
 /** The head of an album's or artist's page. Holds the page's h1, sets the browser tab's title,
  * and tints the top of the panel with the colours of the cover. */
-export function DetailHeader({ kind, title, art, palette, children, actions }: Props) {
+export function DetailHeader({ kind, title, art, palette, description, children, actions }: Props) {
   useDocumentTitle(title);
   usePageTint(palette ? coverTint(palette) : null);
   return (
@@ -28,6 +30,7 @@ export function DetailHeader({ kind, title, art, palette, children, actions }: P
       <div className={styles.text}>
         <p className={styles.kind}>{kind}</p>
         <h1 className={styles.title}>{title}</h1>
+        {description && <p className={styles.description}>{description}</p>}
         {children && <div className={styles.meta}>{children}</div>}
         {actions && <div className={styles.actions}>{actions}</div>}
       </div>
