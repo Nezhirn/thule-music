@@ -55,6 +55,8 @@ export function track(
     artists,
     album: { id: on.id, title: on.title, cover_id: on.cover_id, cover_palette: on.cover_palette },
     album_artist: on.artist,
+    cover_id: on.cover_id,
+    cover_palette: on.cover_palette,
     liked: false,
     ...extra,
   };
@@ -64,6 +66,7 @@ export function albumDetail(on: Album, tracks: Track[]): Schemas["AlbumDetail"] 
   return {
     ...on,
     duration_ms: tracks.reduce((sum, t) => sum + t.duration_ms, 0),
+    cover_custom: false,
     tracks,
   };
 }

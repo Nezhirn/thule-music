@@ -1,0 +1,70 @@
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* Cancel and Save stay on the right when a narrow screen wraps them under the rest. */
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.drop {
+  position: relative;
+  justify-self: center;
+  width: min(240px, 100%);
+  border-radius: var(--radius-md);
+}
+
+.preview {
+  width: 100%;
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
+/* Shown while an image is dragged over the cover. */
+.dropHint {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 2px dashed var(--accent-text);
+  border-radius: var(--radius-md);
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+}
+
+.dropHint svg {
+  width: 28px;
+  height: 28px;
+}
+
+.drop[data-over] .dropHint {
+  display: flex;
+}
+
+.choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}

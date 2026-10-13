@@ -15,12 +15,12 @@ from app.library.importer import resolve_in_library
 from app.library.models import Album, Track
 from app.library.tags import embedded_lyrics
 from app.lyrics.lrc import is_synced, to_plain
-from app.lyrics.models import SIDECAR_SUFFIXES, Lyrics
+from app.lyrics.models import MANUAL, SIDECAR_SUFFIXES, Lyrics
 
 USER_AGENT = "thule-music/0.1 (self-hosted music server)"
 
 
-def _from_text(text: str, source: str) -> dict[str, Any]:
+def from_text(text: str, source: str) -> dict[str, Any]:
     synced = text if is_synced(text) else None
     return {
         "synced": synced,
@@ -76,6 +76,9 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
         )
         if track is None:
             return
+        existing = await session.get(Lyrics, track.id)
+        if existing is not None and existing.source == MANUAL:
+            return
 
         found: dict[str, Any] | None = None
         audio = resolve_in_library(ctx.settings.library_path, track.path)
@@ -86,7 +89,7 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
                     sidecar.read_text, encoding="utf-8", errors="replace"
                 )
                 if text.strip():
-                    found = _from_text(text, "sidecar")
+                    found = from_text(text, "sidecar")
                     break
         if found is None:
             # The import passes what the tags hold; a scan that noticed a lyrics file come or
@@ -96,7 +99,7 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
             else:
                 embedded = await asyncio.to_thread(_read_embedded, audio)
             if embedded:
-                found = _from_text(embedded, "embedded")
+                found = from_text(embedded, "embedded")
         if found is None and ctx.settings.lrclib_enabled:
             # Network errors propagate so the queue retries instead of caching a miss.
             found = await _lrclib(ctx, track)
@@ -107,6 +110,11 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
         await session.execute(
             insert(Lyrics)
             .values(track_id=track.id, **values)
-            .on_conflict_do_update(index_elements=[Lyrics.track_id], set_=values)
+            .on_conflict_do_update(
+                index_elements=[Lyrics.track_id],
+                set_=values,
+                # An admin may have written them meanwhile.
+                where=Lyrics.source != MANUAL,
+            )
         )
         await session.commit()

@@ -10,6 +10,10 @@ from app.db import Base, utcnow
 # first one found is read.
 SIDECAR_SUFFIXES = (".lrc", ".txt")
 
+# The source of lyrics an admin wrote: they stay until the admin gives them up, whatever the
+# files or LRCLIB say.
+MANUAL = "manual"
+
 
 class Lyrics(Base):
     __tablename__ = "lyrics"
@@ -21,6 +25,7 @@ class Lyrics(Base):
     # Raw LRC text with timestamps; parsed on read.
     synced: Mapped[str | None] = mapped_column(Text)
     instrumental: Mapped[bool] = mapped_column(default=False)
-    # "sidecar" | "embedded" | "lrclib" | "none" — "none" caches a negative lookup.
+    # "sidecar" | "embedded" | "lrclib" | "manual" | "none" — "none" caches a negative
+    # lookup. Manual lyrics with no text: the admin said the track has none.
     source: Mapped[str] = mapped_column(String(32))
     fetched_at: Mapped[datetime] = mapped_column(default=utcnow)

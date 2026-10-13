@@ -16,6 +16,8 @@ from app.jobs.context import JobContext
 from app.library.models import Cover
 
 COVER_SIZES = (64, 300, 600)
+# Of a cover an admin uploads: scans of album art can be large.
+MAX_COVER_BYTES = 20 * 1024 * 1024
 
 # Taken shared by store_cover, exclusively by housekeeping before it deletes unused covers,
 # so it can't delete one that an import is about to reference.

@@ -101,6 +101,8 @@ export interface Player {
   clearUpcoming(): void;
   /** Changes a queued track (its like), so the queue kept on the device has it too. */
   updateTrack(id: string, change: Partial<Track>): void;
+  /** Changes the queued tracks `change` picks (null: not this one): an album's new cover. */
+  updateTracks(change: (track: Track) => Partial<Track> | null): void;
   setShuffle(on: boolean): void;
   setRepeat(repeat: Repeat): void;
   setVolume(volume: number): void;
@@ -438,6 +440,10 @@ export function createPlayer(deps: Deps): Player {
     },
     updateTrack(id, change) {
       const updated = queue.updateTrack(get().queue, id, change);
+      if (updated !== get().queue) set({ queue: updated });
+    },
+    updateTracks(change) {
+      const updated = queue.updateTracks(get().queue, change);
       if (updated !== get().queue) set({ queue: updated });
     },
     setShuffle(on) {

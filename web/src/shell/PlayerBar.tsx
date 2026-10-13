@@ -29,7 +29,7 @@ export function PlayerBar({
       <div className={styles.track}>
         {track ? (
           <>
-            <Cover id={track.album.cover_id} sizes="56px" className={styles.cover} />
+            <Cover id={track.cover_id} sizes="56px" className={styles.cover} />
             <TrackInfo track={track} />
             <LikeButton track={track} />
           </>

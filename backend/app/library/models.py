@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, Enum, ForeignKey, Index, String, UniqueConstraint, false
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,6 +60,8 @@ class Album(UUIDPk, Base):
     # file it is embedded in) and that file's mtime, so a scan notices a replaced image.
     cover_source: Mapped[str | None] = mapped_column(String(2048))
     cover_mtime: Mapped[float | None]
+    # An admin chose the cover: scans and imports keep it instead of looking in the files.
+    cover_custom: Mapped[bool] = mapped_column(default=False, server_default=false())
     added_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
     artist: Mapped[Artist] = relationship(lazy="raise")
@@ -99,11 +101,14 @@ class Track(UUIDPk, Base):
     codec: Mapped[str] = mapped_column(String(32))
     bitrate: Mapped[int | None]
     sample_rate: Mapped[int | None]
+    # The track's own picture, set by an admin; without one it shows its album's cover.
+    cover_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("covers.id", ondelete="SET NULL"))
 
     added_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     album: Mapped[Album] = relationship(lazy="raise")
     artist: Mapped[Artist] = relationship(lazy="raise")
+    cover: Mapped[Cover | None] = relationship(lazy="raise")
     credits: Mapped[list["TrackArtist"]] = relationship(
         lazy="raise", order_by="TrackArtist.position", viewonly=True
     )

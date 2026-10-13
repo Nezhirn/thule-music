@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Shuffle } from "lucide-react";
+import { ImagePlus, Shuffle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { Cover } from "../catalog/Cover";
@@ -8,12 +8,14 @@ import { PageFailed, PageLoading } from "../catalog/PageStatus";
 import { albumQuery, artistQuery, type Album } from "../catalog/queries";
 import { Shelf } from "../catalog/Shelf";
 import { TrackTable } from "../catalog/TrackTable";
+import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
 import { FavouriteButton } from "../likes/LikeButton";
 import { usePlayerControls } from "../player/context";
 import { PlayButton } from "../player/PlayButton";
 import { CollectionActions } from "../player/TrackActions";
 import { IconButton } from "../ui/IconButton";
+import { MenuItem } from "../ui/Menu";
 import styles from "./CatalogPage.module.css";
 
 export function AlbumPage() {
@@ -21,6 +23,7 @@ export function AlbumPage() {
   const { id = "" } = useParams();
   const query = useQuery(albumQuery(id));
   const player = usePlayerControls();
+  const edits = useEdits();
   if (query.isPending) return <PageLoading />;
   if (query.isError) {
     return (
@@ -55,7 +58,16 @@ export function AlbumPage() {
               </>
             )}
             <FavouriteButton kind="album" item={album} name={album.title} />
-            <CollectionActions name={album.title} tracks={album.tracks} />
+            <CollectionActions name={album.title} tracks={album.tracks}>
+              {edits && (
+                <MenuItem
+                  icon={ImagePlus}
+                  onSelect={() => edits.editCover({ kind: "album", album })}
+                >
+                  {t.edits.changeCover}
+                </MenuItem>
+              )}
+            </CollectionActions>
           </>
         }
       >

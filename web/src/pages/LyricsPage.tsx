@@ -16,7 +16,7 @@ import styles from "./LyricsPage.module.css";
 export function LyricsPage() {
   const { t } = useI18n();
   const track = usePlayer(selectTrack);
-  const palette = track?.album.cover_palette;
+  const palette = track?.cover_palette;
   usePageTint(palette ? coverTint(palette) : null);
   useDocumentTitle(track ? t.lyrics.of(track.title) : t.lyrics.title);
   if (!track) {
@@ -32,7 +32,7 @@ export function LyricsPage() {
   return (
     <>
       <header className={styles.header}>
-        <Cover id={track.album.cover_id} sizes="112px" className={styles.cover} />
+        <Cover id={track.cover_id} sizes="112px" className={styles.cover} />
         <div className={styles.text}>
           <p className={styles.kind}>{t.lyrics.title}</p>
           <h1 className={styles.title}>{track.title}</h1>

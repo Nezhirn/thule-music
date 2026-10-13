@@ -97,7 +97,7 @@ export function mockPlaylists(
     }));
   const summary = (playlist: PlaylistDetail): PlaylistDetail => {
     const covers = [
-      ...new Set(playlist.items.map((item) => item.track.album.cover_id).filter(Boolean)),
+      ...new Set(playlist.items.map((item) => item.track.cover_id).filter(Boolean)),
     ] as string[];
     return {
       ...playlist,

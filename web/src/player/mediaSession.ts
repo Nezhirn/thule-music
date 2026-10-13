@@ -7,7 +7,7 @@ import { currentItem } from "./queue";
 const SEEK_OFFSET = 10;
 
 function metadata(track: Track): MediaMetadata {
-  const cover = track.album.cover_id;
+  const cover = track.cover_id;
   const artwork = cover
     ? ([300, 600] as const).map((size) => ({
         // Absolute: the system shows it outside the page.

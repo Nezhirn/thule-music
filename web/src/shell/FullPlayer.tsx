@@ -40,7 +40,7 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
     onClose();
   }, [pathname, onClose]);
 
-  const palette = track?.album.cover_palette;
+  const palette = track?.cover_palette;
   return (
     <dialog
       ref={dialog}
@@ -68,7 +68,7 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
             </section>
           ) : (
             <Cover
-              id={track.album.cover_id}
+              id={track.cover_id}
               sizes="(max-width: 899px) 86vw, 420px"
               className={styles.cover}
             />

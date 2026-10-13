@@ -6,7 +6,7 @@ import type { Queue, QueueItem } from "./queue";
 // The version changes when the saved shape (the API's track included) does: an older save
 // is dropped rather than read wrong.
 const QUEUE_KEY = "thule.player";
-const VERSION = 1;
+const VERSION = 2;
 // The volume is the device's, kept across accounts.
 const VOLUME_KEY = "thule.volume";
 // The position is saved at most this often while playing (ms), and when the page is hidden.
@@ -49,11 +49,30 @@ function isQueue(value: Partial<Queue> | undefined): value is Queue {
   );
 }
 
+/** A version 1 save: its tracks had no picture of their own, they showed their album's. */
+function fromVersion1(queue: Queue): Queue {
+  const upgrade = (items: QueueItem[]) =>
+    items.map((item) => ({
+      ...item,
+      track: {
+        ...item.track,
+        cover_id: item.track.album.cover_id,
+        cover_palette: item.track.album.cover_palette,
+      },
+    }));
+  return {
+    ...queue,
+    items: upgrade(queue.items),
+    unshuffled: queue.unshuffled && upgrade(queue.unshuffled),
+  };
+}
+
 export function loadSaved(): Saved | null {
   try {
     const value = JSON.parse(storage.get(QUEUE_KEY) ?? "null") as
       (Partial<Saved> & { v?: number }) | null;
-    if (value?.v !== VERSION || !isQueue(value.queue)) return null;
+    if (value?.v === 1 && isQueue(value.queue)) value.queue = fromVersion1(value.queue);
+    else if (value?.v !== VERSION || !isQueue(value.queue)) return null;
     return {
       queue: value.queue,
       source: isSource(value.source) ? value.source : null,

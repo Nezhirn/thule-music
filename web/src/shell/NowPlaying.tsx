@@ -77,7 +77,7 @@ function Playing({ track }: { track: Track }) {
   const stream = usePlayer((state) => state.stream);
   return (
     <div className={styles.playing}>
-      <Cover id={track.album.cover_id} sizes="280px" className={styles.cover} />
+      <Cover id={track.cover_id} sizes="280px" className={styles.cover} />
       <TrackInfo track={track} large />
       {stream && (
         <p className={styles.stream}>{t.player.stream(codecName(stream.codec), stream.bitrate)}</p>

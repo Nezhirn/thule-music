@@ -12,7 +12,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const { status } = useSession();
   const signedIn = status === "authenticated";
   const preferences = useQuery({ ...preferencesQuery, enabled: signedIn }).data;
-  const playing = usePlayer((state) => selectTrack(state)?.album.cover_palette ?? null);
+  const playing = usePlayer((state) => selectTrack(state)?.cover_palette ?? null);
   const [coverPreview, previewCover] = useState<CoverPalette | null>(null);
   const [accentPreview, previewAccent] = useState<string | null>(null);
 

@@ -62,7 +62,7 @@ function Row({
         aria-label={`${track.title}, ${artists}`}
         onClick={() => player.jump(item.key)}
       >
-        <Cover id={track.album.cover_id} sizes="40px" className={styles.cover} />
+        <Cover id={track.cover_id} sizes="40px" className={styles.cover} />
         <span className={styles.titles}>
           <span className={styles.title}>{track.title}</span>
           <span className={styles.artist}>{artists}</span>

@@ -144,11 +144,18 @@ export function step(queue: Queue, by: 1 | -1, wrap: boolean): Queue | null {
 /** The queue with the track `id` changed (liked) wherever it is queued; the same queue if it
  * isn't. */
 export function updateTrack(queue: Queue, id: string, change: Partial<Track>): Queue {
-  if (!queue.items.some((item) => item.track.id === id)) return queue;
+  return updateTracks(queue, (track) => (track.id === id ? change : null));
+}
+
+/** The queue with the queued tracks changed as `change` says (null: not this one); the same
+ * queue if none is. */
+export function updateTracks(queue: Queue, change: (track: Track) => Partial<Track> | null): Queue {
+  if (!queue.items.some((item) => change(item.track))) return queue;
   const update = (items: QueueItem[]) =>
-    items.map((item) =>
-      item.track.id === id ? { ...item, track: { ...item.track, ...change } } : item,
-    );
+    items.map((item) => {
+      const changed = change(item.track);
+      return changed ? { ...item, track: { ...item.track, ...changed } } : item;
+    });
   return {
     ...queue,
     items: update(queue.items),

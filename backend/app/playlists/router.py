@@ -34,7 +34,7 @@ class PlaylistOut(ApiModel):
     description: str | None
     track_count: int
     duration_ms: int
-    # Up to 4 distinct album covers for a mosaic thumbnail.
+    # Up to 4 distinct covers of its tracks for a mosaic thumbnail.
     cover_ids: list[uuid.UUID]
     created_at: datetime
     updated_at: datetime
@@ -88,14 +88,18 @@ async def _summaries(session: AsyncSession, playlists: list[Playlist]) -> list[P
             )
         )
     }
+    # The tracks' pictures: their own, else their album's.
+    cover_id = func.coalesce(Track.cover_id, Album.cover_id)
     first_pos = (
         select(
-            PlaylistItem.playlist_id, Album.cover_id, func.min(PlaylistItem.position).label("pos")
+            PlaylistItem.playlist_id,
+            cover_id.label("cover_id"),
+            func.min(PlaylistItem.position).label("pos"),
         )
         .join(Track, Track.id == PlaylistItem.track_id)
         .join(Album, Album.id == Track.album_id)
-        .where(PlaylistItem.playlist_id.in_(ids), Album.cover_id.is_not(None))
-        .group_by(PlaylistItem.playlist_id, Album.cover_id)
+        .where(PlaylistItem.playlist_id.in_(ids), cover_id.is_not(None))
+        .group_by(PlaylistItem.playlist_id, cover_id)
         .subquery()
     )
     covers: dict[uuid.UUID, list[uuid.UUID]] = {}

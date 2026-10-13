@@ -213,7 +213,7 @@ export function TrackTable({
                 <td>
                   <div className={styles.main}>
                     {withAlbum && (
-                      <Cover id={track.album.cover_id} sizes="40px" className={styles.cover} />
+                      <Cover id={track.cover_id} sizes="40px" className={styles.cover} />
                     )}
                     <div className={styles.titles}>
                       <span className={styles.title}>{track.title}</span>

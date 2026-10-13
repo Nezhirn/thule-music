@@ -2,14 +2,34 @@ import { useQuery } from "@tanstack/react-query";
 import { MessageSquareOff, Music } from "lucide-react";
 import type { Track } from "../catalog/queries";
 import { LoadError } from "../catalog/LoadError";
+import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
+import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { lyricsQuery, stanzas } from "./queries";
 import styles from "./Lyrics.module.css";
 
 /** A track's lyrics as text to read, stanza by stanza, and where they come from; or why
- * there are none. `size`: large on its page, smaller in the phone's player. */
+ * there are none. `size`: large on its page, smaller in the phone's player. Admins get a
+ * button to edit them. */
 export function Lyrics({ track, size = "large" }: { track: Track; size?: "large" | "small" }) {
+  const { t } = useI18n();
+  const edits = useEdits();
+  return (
+    <>
+      <Words track={track} size={size} />
+      {edits && (
+        <div className={styles.edit}>
+          <Button variant="secondary" size="small" onClick={() => edits.editLyrics(track)}>
+            {t.edits.editLyrics}
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Words({ track, size }: { track: Track; size: "large" | "small" }) {
   const { t } = useI18n();
   const lyrics = useQuery(lyricsQuery(track.id));
   if (lyrics.isPending) {

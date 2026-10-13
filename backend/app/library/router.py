@@ -169,6 +169,7 @@ async def get_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser)
     return AlbumDetail(
         **(await albums_out(session, user.id, [album]))[0].model_dump(),
         duration_ms=sum(t.duration_ms for t in tracks),
+        cover_custom=album.cover_custom,
         tracks=await tracks_out(session, user.id, tracks),
     )
 

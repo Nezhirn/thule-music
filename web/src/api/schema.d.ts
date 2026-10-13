@@ -552,6 +552,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/albums/{album_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Album Cover
+         * @description JPEG, PNG or WebP up to 20 MB. Scans keep it whatever the album's files hold, until
+         *     `DELETE` gives it up.
+         */
+        put: operations["set_album_cover"];
+        post?: never;
+        /**
+         * Reset Album Cover
+         * @description Gives up the cover an admin chose: the album's files have the say again (a folder
+         *     image, else embedded art).
+         */
+        delete: operations["reset_album_cover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracks/{track_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Track Cover
+         * @description The track's own picture, shown instead of its album's cover wherever the track is
+         *     (lists, the player, playlists' mosaics). JPEG, PNG or WebP up to 20 MB.
+         */
+        put: operations["set_track_cover"];
+        post?: never;
+        /**
+         * Reset Track Cover
+         * @description The track shows its album's cover again.
+         */
+        delete: operations["reset_track_cover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tracks/{track_id}/stream-url": {
         parameters: {
             query?: never;
@@ -628,9 +679,20 @@ export interface paths {
         };
         /** Get Lyrics */
         get: operations["get_lyrics"];
-        put?: never;
+        /**
+         * Set Lyrics
+         * @description Admins write a track's lyrics, or take wrong ones away (empty text). They stay
+         *     whatever the files or LRCLIB say, until `DELETE` gives them up. Returns the lyrics as
+         *     `GET` does; null when the track now has none.
+         */
+        put: operations["set_lyrics"];
         post?: never;
-        delete?: never;
+        /**
+         * Find Lyrics Again
+         * @description Forgets the track's lyrics, an admin's included, and looks for them again as an
+         *     import does (lyrics file, tags, LRCLIB) in the background.
+         */
+        delete: operations["find_lyrics_again"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1017,6 +1079,11 @@ export interface components {
             liked: boolean;
             /** Duration Ms */
             duration_ms: number;
+            /**
+             * Cover Custom
+             * @default false
+             */
+            cover_custom: boolean;
             /** Tracks */
             tracks: components["schemas"]["TrackOut"][];
         };
@@ -1121,6 +1188,16 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** Body_set_album_cover */
+        Body_set_album_cover: {
+            /** File */
+            file: string;
+        };
+        /** Body_set_track_cover */
+        Body_set_track_cover: {
+            /** File */
+            file: string;
         };
         /** Body_upload_avatar */
         Body_upload_avatar: {
@@ -1303,6 +1380,19 @@ export interface components {
             time_ms: number;
             /** Text */
             text: string;
+        };
+        /** LyricsIn */
+        LyricsIn: {
+            /**
+             * Text
+             * @default
+             */
+            text?: string;
+            /**
+             * Instrumental
+             * @default false
+             */
+            instrumental?: boolean;
         };
         /** LyricsOut */
         LyricsOut: {
@@ -1690,6 +1780,9 @@ export interface components {
             artists: components["schemas"]["ArtistRef"][];
             album: components["schemas"]["AlbumRef"];
             album_artist: components["schemas"]["ArtistRef"];
+            /** Cover Id */
+            cover_id: string | null;
+            cover_palette: components["schemas"]["CoverPalette"] | null;
             /**
              * Liked
              * @default false
@@ -2775,6 +2868,138 @@ export interface operations {
             };
         };
     };
+    set_album_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                album_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_set_album_cover"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    reset_album_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                album_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    set_track_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_set_track_cover"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    reset_track_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     get_stream_url: {
         parameters: {
             query?: {
@@ -2891,6 +3116,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LyricsOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    set_lyrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LyricsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LyricsOut"] | null;
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    find_lyrics_again: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Error */

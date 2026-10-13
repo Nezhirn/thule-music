@@ -19,6 +19,7 @@ TRACK_LOAD: list[LoaderOption] = [
     selectinload(Track.credits).selectinload(TrackArtist.artist),
     selectinload(Track.album).selectinload(Album.cover),
     selectinload(Track.album).selectinload(Album.artist),
+    selectinload(Track.cover),
 ]
 ALBUM_LOAD: list[LoaderOption] = [selectinload(Album.artist), selectinload(Album.cover)]
 
@@ -73,6 +74,7 @@ def album_ref(album: Album) -> AlbumRef:
 
 
 def track_out(track: Track, liked: set[uuid.UUID] | None = None) -> TrackOut:
+    cover = track.cover or track.album.cover
     return TrackOut(
         id=track.id,
         title=track.title,
@@ -86,6 +88,8 @@ def track_out(track: Track, liked: set[uuid.UUID] | None = None) -> TrackOut:
         or [ArtistRef(id=track.artist.id, name=track.artist.name)],
         album=album_ref(track.album),
         album_artist=ArtistRef(id=track.album.artist.id, name=track.album.artist.name),
+        cover_id=cover.id if cover else None,
+        cover_palette=cover_palette(cover),
         liked=liked is not None and track.id in liked,
     )
 

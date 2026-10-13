@@ -28,7 +28,7 @@ export function MiniPlayer({ onOpen }: { onOpen(): void }) {
         aria-label={`${track.title}, ${artists}. ${t.player.openPlayer}`}
         onClick={onOpen}
       >
-        <Cover id={track.album.cover_id} sizes="40px" className={styles.cover} />
+        <Cover id={track.cover_id} sizes="40px" className={styles.cover} />
         <span className={styles.titles}>
           <span className={styles.title}>{track.title}</span>
           <span className={styles.artist}>{artists}</span>

@@ -43,7 +43,7 @@ const ffmpeg = (/** @type {string[]} */ args) =>
   run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
 
 /** @param {string} path @param {string} color */
-async function makeCover(path, color) {
+export async function makeCover(path, color) {
   await ffmpeg([
     "-f",
     "lavfi",

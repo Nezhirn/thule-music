@@ -2,14 +2,17 @@ import {
   Disc3,
   Heart,
   HeartOff,
+  ImagePlus,
   ListEnd,
   ListPlus,
   ListStart,
   MoreHorizontal,
+  SquarePen,
   UserRound,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Track } from "../catalog/queries";
+import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
 import { useLiked, useToggleLike } from "../likes/context";
 import { useAddToPlaylist } from "../playlists/adding";
@@ -19,8 +22,8 @@ import { announce } from "../ui/toast";
 import { usePlayerControls } from "./context";
 import styles from "./TrackActions.module.css";
 
-/** A track's menu: queue it next or last, like it, go to its album or artist; `children` are
- * more items, at the end. */
+/** A track's menu: queue it next or last, like it, go to its album or artist; for admins,
+ * edit its lyrics and cover. `children` are more items, at the end. */
 export function TrackActions({
   track,
   className,
@@ -35,6 +38,7 @@ export function TrackActions({
   const liked = useLiked("track", track);
   const toggleLike = useToggleLike();
   const addToPlaylist = useAddToPlaylist();
+  const edits = useEdits();
   return (
     <Menu
       label={t.player.trackActions(track.title)}
@@ -77,6 +81,16 @@ export function TrackActions({
       <MenuLink to={`/artists/${track.artist.id}`} icon={UserRound}>
         {t.player.goToArtist}
       </MenuLink>
+      {edits && (
+        <>
+          <MenuItem icon={SquarePen} onSelect={() => edits.editLyrics(track)}>
+            {t.edits.editLyrics}
+          </MenuItem>
+          <MenuItem icon={ImagePlus} onSelect={() => edits.editCover({ kind: "track", track })}>
+            {t.edits.changeCover}
+          </MenuItem>
+        </>
+      )}
       {children}
     </Menu>
   );

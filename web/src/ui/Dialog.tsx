@@ -8,13 +8,15 @@ interface Props {
   title: string;
   /** Under the title: what the dialog is about. */
   description?: ReactNode;
+  /** Room for a long text to edit. */
+  wide?: boolean;
   children: ReactNode;
 }
 
 /** A modal dialog: the page behind can't be used until it closes. Opens with the focus on
  * its first control, and gives it back on closing to what had it. The content is made
  * afresh each time it opens. */
-export function Dialog({ open, onClose, title, description, children }: Props) {
+export function Dialog({ open, onClose, title, description, wide, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -33,7 +35,7 @@ export function Dialog({ open, onClose, title, description, children }: Props) {
   return (
     <dialog
       ref={ref}
-      className={styles.dialog}
+      className={wide ? `${styles.dialog} ${styles.wide}` : styles.dialog}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onClose={() => {

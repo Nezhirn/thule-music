@@ -35,7 +35,7 @@ from app.library.covers import is_image, store_cover
 from app.library.models import Album, Artist, Cover, Track, TrackArtist, name_key
 from app.library.queries import TRACK_ORDER
 from app.library.tags import embedded_picture, folder_cover, pick_folder_cover, read_tags
-from app.lyrics.models import SIDECAR_SUFFIXES, Lyrics
+from app.lyrics.models import MANUAL, SIDECAR_SUFFIXES, Lyrics
 
 log = logging.getLogger(__name__)
 
@@ -150,7 +150,12 @@ async def choose_album_cover(
     session: AsyncSession, library: Path, covers: Path, album: Album
 ) -> None:
     """Sets the album's cover from its current tracks (see _album_picture). Runs on every
-    import of one of its tracks, and when a scan sees one of its folder images change."""
+    import of one of its tracks, and when a scan sees one of its folder images change. A
+    cover an admin chose is kept."""
+    # Locked until the commit: an admin choosing a cover meanwhile waits, then wins.
+    await session.refresh(album, ["cover_custom"], with_for_update=True)
+    if album.cover_custom:
+        return
     paths = list(
         await session.scalars(
             select(Track.path)
@@ -309,7 +314,7 @@ async def _stale_lyrics(
 ) -> list[uuid.UUID]:
     """Tracks ({path: id}) whose lyrics must be fetched again: a lyrics file beside the
     track that they don't come from yet or that changed since, or one they came from that
-    is gone."""
+    is gone. Lyrics an admin wrote stay."""
     with_file = [tracks[path] for path in sidecars if path in tracks]
     fetched = {
         row.track_id: row
@@ -326,6 +331,8 @@ async def _stale_lyrics(
     for path, track_id in tracks.items():
         row = fetched.get(track_id)
         mtime = sidecars.get(path)
+        if row is not None and row.source == MANUAL:
+            continue  # an admin's text wins over the files
         if mtime is None:
             if row is not None and row.source == "sidecar":
                 stale.append(track_id)
@@ -415,7 +422,7 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, in
         albums = [
             (row.id, row.cover_source, row.cover_mtime)
             for row in await session.execute(
-                select(Album.id, Album.cover_source, Album.cover_mtime)
+                select(Album.id, Album.cover_source, Album.cover_mtime).where(~Album.cover_custom)
             )
         ]
         stale = _stale_covers(albums, folders, images)

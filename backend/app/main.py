@@ -13,6 +13,7 @@ from app.deps import SessionDep
 from app.errors import ERROR_RESPONSES, install_error_handlers
 from app.home.router import router as home_router
 from app.library.admin import admin_router as library_admin_router
+from app.library.edits import edits_router
 from app.library.router import router as library_router
 from app.lyrics.router import router as lyrics_router
 from app.me.router import router as me_router
@@ -63,6 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         users_router,
         library_router,
         library_admin_router,
+        edits_router,
         media_router,
         lyrics_router,
         playlists_router,

@@ -66,18 +66,32 @@ test("saves that don't fit are ignored", () => {
   const item = { key: "a", track: TRACKS[0] as Track };
   const save = (value: unknown) => localStorage.setItem("thule.player", JSON.stringify(value));
   const queue = { items: [item], current: 0, unshuffled: null };
-  save({ v: 1, queue, source: null, repeat: "off", position: 3 });
+  save({ v: 2, queue, source: null, repeat: "off", position: 3 });
   expect(loadSaved()?.position).toBe(3);
   save({ v: 0, queue, source: null, repeat: "off", position: 3 });
   expect(loadSaved()).toBeNull();
-  save({ v: 1, queue: { ...queue, current: 1 }, source: null, repeat: "off", position: 3 });
+  save({ v: 2, queue: { ...queue, current: 1 }, source: null, repeat: "off", position: 3 });
   expect(loadSaved()).toBeNull();
-  save({ v: 1, queue: { ...queue, items: [{ key: "a" }] }, source: null });
+  save({ v: 2, queue: { ...queue, items: [{ key: "a" }] }, source: null });
   expect(loadSaved()).toBeNull();
-  save({ v: 1, queue, source: { type: 1 }, repeat: "sometimes", position: -1 });
+  save({ v: 2, queue, source: { type: 1 }, repeat: "sometimes", position: -1 });
   expect(loadSaved()).toMatchObject({ source: null, repeat: "off", position: 0 });
   localStorage.setItem("thule.player", "{");
   expect(loadSaved()).toBeNull();
+});
+
+test("a queue saved before tracks had pictures of their own shows their albums' covers", () => {
+  const older: Partial<Track> = { ...TRACKS[0]! };
+  delete older.cover_id;
+  delete older.cover_palette;
+  const queue = { items: [{ key: "a", track: older }], current: 0, unshuffled: null };
+  localStorage.setItem(
+    "thule.player",
+    JSON.stringify({ v: 1, queue, source: null, repeat: "off", position: 3 }),
+  );
+  const [item] = loadSaved()!.queue.items;
+  expect(item!.track).toEqual(TRACKS[0]);
+  expect(item!.track.cover_id).toBe(ALBUM.cover_id);
 });
 
 test("the volume is kept for the device", () => {

@@ -61,6 +61,9 @@ class TrackOut(ApiModel):
     artists: list[ArtistRef]
     album: AlbumRef
     album_artist: ArtistRef
+    # The track's picture: its own if an admin set one, else its album's cover.
+    cover_id: uuid.UUID | None
+    cover_palette: CoverPalette | None
     liked: bool = False
 
 
@@ -78,6 +81,8 @@ class AlbumOut(ApiModel):
 
 class AlbumDetail(AlbumOut):
     duration_ms: int
+    # An admin chose the cover; otherwise it comes from the album's files.
+    cover_custom: bool = False
     tracks: list[TrackOut]
 
 

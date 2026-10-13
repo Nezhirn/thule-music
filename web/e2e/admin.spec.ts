@@ -1,13 +1,13 @@
 // Administration against the real server: the library's numbers and a scan, uploading an
 // album folder (with its cover and lyrics) and files that are copies or not music, the
-// errors of background work, and the users. Runs after the other tests (see the config):
+// errors of background work, lyrics and covers corrected by hand, and the users. Runs after the other tests (see the config):
 // the uploaded album would change what they count.
 import { expect, test, type Page } from "./test";
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expectAccessible } from "./a11y";
 import { ADMIN, createUser, login, signIn } from "./api";
-import { writeAlbum } from "./stack/library.mjs";
+import { makeCover, writeAlbum } from "./stack/library.mjs";
 
 const LIBRARY = fileURLToPath(new URL("../.e2e/library/", import.meta.url));
 const card = (page: Page, name: string) => page.getByRole("region", { name });
@@ -192,6 +192,90 @@ test("users: a new one, a role, a password, signed out everywhere, deleted", asy
   await expectAccessible(page);
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await expect(row(listener.username)).toHaveCount(0);
+});
+
+test("lyrics and covers corrected by hand, and given up again", async ({ page }, testInfo) => {
+  const blue = testInfo.outputPath("blue.jpg");
+  const red = testInfo.outputPath("red.jpg");
+  await makeCover(blue, "#2040c0");
+  await makeCover(red, "#c02030");
+  const status = (text: string) => page.getByRole("status").filter({ hasText: text });
+  const bar = page.getByRole("region", { name: "Player" });
+
+  // An album without art gets a cover.
+  await page.goto("/albums?sort=title");
+  await page.getByRole("link", { name: "Paper Moons", exact: true }).click();
+  const art = page.locator("main header img");
+  await expect(art).toHaveCount(0);
+  await page.getByRole("button", { name: "More for Paper Moons" }).click();
+  await page.getByRole("menuitem", { name: "Change cover" }).click();
+  let dialog = page.getByRole("dialog", { name: "Album cover" });
+  await expect(dialog).toHaveAccessibleDescription("Paper Moons — Mira Vale");
+  await expectAccessible(page);
+  await dialog.getByLabel("Choose an image").setInputFiles(blue);
+  await expect(status("Changed the cover")).toHaveText("Changed the cover of Paper Moons");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(art).toHaveAttribute("src", /^\/api\/v1\/covers\/[\w-]+\?size=300$/);
+  const albumCover = await art.getAttribute("src");
+
+  // A track gets a picture of its own: the player shows it, the album keeps its cover.
+  await page.getByRole("button", { name: "More for Neon Rain" }).click();
+  await page.getByRole("menuitem", { name: "Change cover" }).click();
+  dialog = page.getByRole("dialog", { name: "Track cover" });
+  await dialog.getByLabel("Choose an image").setInputFiles(red);
+  await expect(status("Changed the cover")).toHaveText("Changed the cover of Neon Rain");
+  await expect(dialog.getByRole("button", { name: "Show the album cover" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Play Neon Rain" }).click();
+  await expect(bar.locator("img").first()).toHaveAttribute("src", /\/api\/v1\/covers\//);
+  expect(await bar.locator("img").first().getAttribute("src")).not.toBe(albumCover);
+  await expect(art).toHaveAttribute("src", albumCover!);
+
+  // Both given up: the album has no art in its files.
+  await page.getByRole("button", { name: "More for Neon Rain" }).click();
+  await page.getByRole("menuitem", { name: "Change cover" }).click();
+  await dialog.getByRole("button", { name: "Show the album cover" }).click();
+  await expect(dialog.getByRole("button", { name: "Show the album cover" })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "More for Paper Moons" }).click();
+  await page.getByRole("menuitem", { name: "Change cover" }).click();
+  dialog = page.getByRole("dialog", { name: "Album cover" });
+  await dialog.getByRole("button", { name: "Take it from the files" }).click();
+  await expect(dialog.getByRole("button", { name: "Take it from the files" })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(art).toHaveCount(0);
+
+  // Lyrics written by hand, then found again in the file beside the track.
+  await page.goto("/albums?sort=title");
+  await page.getByRole("link", { name: "Northern Lights", exact: true }).click();
+  await page.getByRole("button", { name: "Play Northern Lights" }).click();
+  await bar.getByRole("button", { name: "Lyrics" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Polar Drift" })).toBeVisible();
+  const words = page.getByRole("region", { name: "Lyrics" });
+  await words.getByRole("button", { name: "Edit lyrics" }).click();
+  dialog = page.getByRole("dialog", { name: "Lyrics" });
+  const field = dialog.getByRole("textbox", { name: "Words" });
+  await expect(field).toHaveValue(
+    "Snow on the rails\nLights in the north\n\nWe drift until morning",
+  );
+  await expectAccessible(page);
+  await field.fill("Rails under snow\n\nMorning at last");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(status("Saved the lyrics")).toHaveText("Saved the lyrics of Polar Drift");
+  await expect(words.getByRole("paragraph")).toHaveText([
+    "Rails under snow",
+    "Morning at last",
+    "Added by an administrator",
+  ]);
+
+  await words.getByRole("button", { name: "Edit lyrics" }).click();
+  await dialog.getByRole("button", { name: "Find automatically" }).click();
+  await expect(status("Found the lyrics")).toHaveText("Found the lyrics of Polar Drift");
+  await expect(words.getByRole("paragraph")).toHaveText([
+    "Snow on the railsLights in the north",
+    "We drift until morning",
+    "From a file next to the track",
+  ]);
 });
 
 test("on a phone", async ({ page }) => {

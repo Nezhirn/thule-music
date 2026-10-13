@@ -52,7 +52,7 @@ export function TopResult({ top }: { top: Top }) {
     const { track } = top;
     name = track.title;
     to = `/albums/${track.album.id}`;
-    picture = <Cover id={track.album.cover_id} sizes="112px" className={styles.art} />;
+    picture = <Cover id={track.cover_id} sizes="112px" className={styles.art} />;
     byline = (
       <span className={styles.artists}>
         <ArtistLinks artists={track.artists.length ? track.artists : [track.artist]} />

@@ -116,7 +116,7 @@ function Playlist({ id }: { id: string }) {
         kind={t.playlists.playlist}
         title={playlist.name}
         description={playlist.description}
-        palette={tracks[0]?.album.cover_palette ?? null}
+        palette={tracks[0]?.cover_palette ?? null}
         art={<PlaylistCover ids={playlist.cover_ids} sizes="(max-width: 899px) 64vw, 232px" />}
         actions={
           <>
