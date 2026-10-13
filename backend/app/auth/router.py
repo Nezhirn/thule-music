@@ -1,11 +1,12 @@
+import math
 import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, UploadFile, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import RefreshToken, Role, User
+from app.auth.models import LoginFailure, RefreshToken, Role, User
 from app.auth.schemas import (
     Credentials,
     PasswordChange,
@@ -35,6 +36,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 MAX_AVATAR_BYTES = 10 * 1024 * 1024
+
+# Failed logins allowed per username within the window; further attempts get 429 until the
+# oldest failure leaves it. Per username, not per IP: behind a reverse proxy every client
+# may share the proxy's address, and forwarded addresses can be forged.
+MAX_LOGIN_FAILURES = 10
+LOGIN_FAILURE_WINDOW = timedelta(minutes=15)
 
 # Serialises registrations, so two concurrent first sign-ups can't both become admin.
 _REGISTER_LOCK = 0x7468_756C  # "thul"
@@ -102,9 +109,29 @@ async def register(body: RegisterIn, session: SessionDep, actor: OptionalUser) -
 
 @router.post("/login", response_model=TokenPair)
 async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -> TokenPair:
+    """After too many failed attempts for a username, answers 429 with Retry-After without
+    checking the password."""
+    now = utcnow()
+    failures, oldest = (
+        await session.execute(
+            select(func.count(), func.min(LoginFailure.failed_at)).where(
+                LoginFailure.username == body.username,
+                LoginFailure.failed_at > now - LOGIN_FAILURE_WINDOW,
+            )
+        )
+    ).one()
+    if failures >= MAX_LOGIN_FAILURES:
+        retry_after = math.ceil((oldest + LOGIN_FAILURE_WINDOW - now).total_seconds())
+        raise ApiError(
+            ErrorCode.too_many_login_attempts, headers={"Retry-After": str(max(retry_after, 1))}
+        )
+
     user = await session.scalar(select(User).where(User.username == body.username))
     if user is None or not verify_password(user.password_hash, body.password):
+        session.add(LoginFailure(username=body.username))
+        await session.commit()
         raise ApiError(ErrorCode.invalid_credentials)
+    await session.execute(delete(LoginFailure).where(LoginFailure.username == body.username))
     return await _issue_tokens(session, settings, user)
 
 

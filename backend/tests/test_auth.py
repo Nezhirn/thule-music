@@ -1,8 +1,11 @@
 import asyncio
+from datetime import timedelta
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import func, select, update
 
+from app.auth.models import LoginFailure
 from app.config import Settings
 from tests.conftest import register_and_login
 
@@ -113,3 +116,32 @@ def test_secret_key_has_no_default(monkeypatch):
     monkeypatch.delenv("THULE_SECRET_KEY", raising=False)
     with pytest.raises(ValidationError, match="secret_key"):
         Settings(_env_file=None)
+
+
+async def test_failed_logins_are_throttled_per_username(client, admin, sessionmaker):
+    wrong = {"username": "admin", "password": "wrong"}
+    right = {"username": "admin", "password": "admin-password"}
+    for _ in range(10):
+        assert (await client.post("/auth/login", json=wrong)).status_code == 401
+
+    # Locked: even the right password is not checked.
+    locked = await client.post("/auth/login", json=right)
+    assert locked.status_code == 429
+    assert locked.json()["code"] == "too_many_login_attempts"
+    assert 0 < int(locked.headers["retry-after"]) <= 15 * 60
+    # Other accounts are unaffected.
+    other = await client.post("/auth/login", json={"username": "ghost", "password": "x"})
+    assert other.status_code == 401
+
+    # Once the failures leave the window, logging in works and resets the count.
+    async with sessionmaker() as session:
+        await session.execute(
+            update(LoginFailure).values(failed_at=LoginFailure.failed_at - timedelta(minutes=16))
+        )
+        await session.commit()
+    assert (await client.post("/auth/login", json=right)).status_code == 200
+    async with sessionmaker() as session:
+        left = await session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.username == "admin")
+        )
+    assert left == 0

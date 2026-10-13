@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy import and_, delete, exists, func, or_, select
 
-from app.auth.models import RefreshToken, User
+from app.auth.models import LoginFailure, RefreshToken, User
 from app.db import utcnow
 from app.jobs.context import JobContext
 from app.jobs.models import Job, JobStatus
@@ -64,6 +64,9 @@ async def housekeeping(ctx: JobContext, payload: dict[str, Any]) -> None:
             )
         )
         tokens = await session.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))
+        await session.execute(
+            delete(LoginFailure).where(LoginFailure.failed_at < now - timedelta(days=1))
+        )
         # Waits for imports that may be about to reference an existing cover (store_cover).
         await session.execute(select(func.pg_advisory_xact_lock(COVERS_LOCK)))
         covers = await session.execute(

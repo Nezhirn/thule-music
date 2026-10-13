@@ -29,6 +29,7 @@ class ErrorCode(enum.StrEnum):
     registration_closed = "registration_closed"
     username_taken = "username_taken"
     invalid_credentials = "invalid_credentials"
+    too_many_login_attempts = "too_many_login_attempts"
     invalid_refresh_token = "invalid_refresh_token"
     refresh_token_reused = "refresh_token_reused"
     refresh_token_expired = "refresh_token_expired"
@@ -63,6 +64,7 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.registration_closed: (403, "Only admins can create users"),
     ErrorCode.username_taken: (409, "Username already taken"),
     ErrorCode.invalid_credentials: (401, "Invalid username or password"),
+    ErrorCode.too_many_login_attempts: (429, "Too many failed logins, try again later"),
     ErrorCode.invalid_refresh_token: (401, "Invalid refresh token"),
     ErrorCode.refresh_token_reused: (401, "Refresh token reuse detected"),
     ErrorCode.refresh_token_expired: (401, "Refresh token expired"),

@@ -1,6 +1,6 @@
 """Imports every model so Base.metadata is complete (Alembic, tests)."""
 
-from app.auth.models import RefreshToken, User
+from app.auth.models import LoginFailure, RefreshToken, User
 from app.db import Base
 from app.jobs.models import Job
 from app.library.models import Album, Artist, Cover, Track, TrackFile
@@ -16,6 +16,7 @@ __all__ = [
     "Base",
     "Cover",
     "Job",
+    "LoginFailure",
     "Lyrics",
     "PlayEvent",
     "Playlist",

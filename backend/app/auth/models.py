@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, String, false, text
+from sqlalchemy import Enum, ForeignKey, Index, String, false, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,3 +47,15 @@ class RefreshToken(UUIDPk, Base):
     # means it was copied; one revoked by logout or a password change is merely stale.
     rotated: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class LoginFailure(UUIDPk, Base):
+    """A failed login, for throttling password guessing (see auth.router.login)."""
+
+    __tablename__ = "login_failures"
+
+    # As typed: attempts on names that don't exist are throttled too.
+    username: Mapped[str] = mapped_column(String(64))
+    failed_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    __table_args__ = (Index("ix_login_failures_username_failed_at", "username", "failed_at"),)
