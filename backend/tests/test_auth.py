@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -12,6 +14,22 @@ async def test_first_user_becomes_admin_then_registration_closes(client):
 
     resp = await client.post("/auth/register", json={"username": "eve", "password": "password1"})
     assert resp.status_code == 403
+
+
+async def test_setup_status(client):
+    assert (await client.get("/auth/setup")).json() == {"needs_setup": True}
+    await client.post("/auth/register", json={"username": "boss", "password": "password1"})
+    assert (await client.get("/auth/setup")).json() == {"needs_setup": False}
+
+
+async def test_concurrent_first_registrations_make_one_admin(client):
+    responses = await asyncio.gather(
+        *(
+            client.post("/auth/register", json={"username": f"u{i}", "password": "password1"})
+            for i in range(3)
+        )
+    )
+    assert sorted(r.status_code for r in responses) == [201, 403, 403]
 
 
 async def test_admin_creates_users(client, admin):

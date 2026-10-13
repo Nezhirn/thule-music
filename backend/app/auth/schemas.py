@@ -29,6 +29,11 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
+class SetupStatus(BaseModel):
+    # True until the first account exists: the client should offer to create the admin.
+    needs_setup: bool
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -5,7 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import RefreshToken, Role, User
-from app.auth.schemas import Credentials, RefreshIn, RegisterIn, TokenPair, UserOut
+from app.auth.schemas import Credentials, RefreshIn, RegisterIn, SetupStatus, TokenPair, UserOut
 from app.auth.security import (
     create_access_token,
     hash_password,
@@ -20,6 +20,9 @@ from app.errors import ApiError, ErrorCode
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
+
+# Serialises registrations, so two concurrent first sign-ups can't both become admin.
+_REGISTER_LOCK = 0x7468_756C  # "thul"
 
 
 async def _issue_tokens(session: AsyncSession, settings: Settings, user: User) -> TokenPair:
@@ -40,10 +43,18 @@ async def _issue_tokens(session: AsyncSession, settings: Settings, user: User) -
     )
 
 
+@router.get("/setup", response_model=SetupStatus)
+async def get_setup_status(session: SessionDep) -> SetupStatus:
+    """Public. Whether the server still has no accounts (then `register` creates the admin)."""
+    has_users = await session.scalar(select(select(User.id).exists()))
+    return SetupStatus(needs_setup=not has_users)
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterIn, session: SessionDep, actor: OptionalUser) -> User:
     """The very first user bootstraps the server and becomes admin.
     After that, only admins can create accounts."""
+    await session.execute(select(func.pg_advisory_xact_lock(_REGISTER_LOCK)))
     user_count = await session.scalar(select(func.count()).select_from(User))
     if user_count == 0:
         role = Role.admin
