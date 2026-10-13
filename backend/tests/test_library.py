@@ -89,6 +89,71 @@ async def test_rescan_removes_deleted_files_and_orphans(client, admin, make_audi
     assert keep.exists()
 
 
+async def test_moved_files_keep_track_and_user_data(client, admin, make_audio, run_jobs, settings):
+    make_audio("Old/01.mp3", title="One", artist="A", album="X", track=1, cover=(9, 9, 9))
+    make_audio("Old/02.mp3", title="Two", artist="A", album="X", track=2, cover=(9, 9, 9))
+    await scan(client, admin, run_jobs)
+    before = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    one = before["One"]["id"]
+    await client.put(f"/me/likes/tracks/{one}", headers=admin)
+    playlist = (await client.post("/playlists", json={"name": "P"}, headers=admin)).json()
+    await client.post(
+        f"/playlists/{playlist['id']}/tracks", json={"track_ids": [one]}, headers=admin
+    )
+    await client.post("/me/plays", json={"track_id": one}, headers=admin)
+
+    (settings.library_path / "Renamed").mkdir()
+    (settings.library_path / "Old").rename(settings.library_path / "Renamed" / "X (2020)")
+    await client.post("/library/scan", headers=admin)
+    assert await run_jobs() == 1  # a plain move needs no re-import
+
+    after = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert {t: v["id"] for t, v in after.items()} == {t: v["id"] for t, v in before.items()}
+    assert after["One"]["album"]["id"] == before["One"]["album"]["id"]
+    assert after["One"]["liked"]
+    detail = (await client.get(f"/playlists/{playlist['id']}", headers=admin)).json()
+    assert [i["track"]["id"] for i in detail["items"]] == [one]
+    recent = (await client.get("/me/recent", headers=admin)).json()
+    assert [r["track"]["id"] for r in recent] == [one]
+    assert (
+        await client.get(f"/tracks/{one}/stream?quality=original", headers=admin)
+    ).status_code == 200
+
+
+async def test_replaced_file_with_same_tags_keeps_track(client, admin, make_audio, run_jobs):
+    old = make_audio("a/01.mp3", title="One", artist="A", album="X", track=1)
+    await scan(client, admin, run_jobs)
+    (track,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    await client.put(f"/me/likes/tracks/{track['id']}", headers=admin)
+
+    # Re-encoded as FLAC in another folder: neither size nor mtime match, the tags do.
+    old.unlink()
+    make_audio("b/01.flac", title="One", artist="A", album="X", track=1)
+    await scan(client, admin, run_jobs)
+
+    (after,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert after["id"] == track["id"]
+    assert after["codec"] == "flac"  # re-read from the new file
+    assert after["liked"]
+
+
+async def test_ambiguous_moves_are_imported_as_new_tracks(client, admin, make_audio, run_jobs):
+    tags = {"title": "Dup", "artist": "A", "album": "X", "track": 1}
+    first = make_audio("a/01.mp3", **tags)
+    second = make_audio("b/01.mp3", **tags)
+    await scan(client, admin, run_jobs)
+    old_ids = {t["id"] for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+
+    first.unlink()
+    second.unlink()
+    make_audio("c/01.flac", **tags)
+    make_audio("d/01.flac", **tags)
+    await scan(client, admin, run_jobs)
+
+    new_ids = {t["id"] for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert len(new_ids) == 2 and not new_ids & old_ids
+
+
 async def test_unchanged_files_are_not_reimported(client, admin, make_audio, run_jobs):
     make_audio("a/1.mp3", title="T", artist="A", album="X")
     await scan(client, admin, run_jobs)

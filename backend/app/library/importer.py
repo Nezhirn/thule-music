@@ -4,10 +4,12 @@ import asyncio
 import logging
 import os
 import uuid
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import ARRAY, String, Uuid, any_, delete, exists, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,27 +72,155 @@ async def delete_orphans(session: AsyncSession) -> None:
     )
 
 
+# Same tags but a duration further off than this: a different recording, not a moved file.
+MOVE_DURATION_TOLERANCE_MS = 2000
+
+Identity = tuple[str, str, int | None, int | None, str]
+
+
+@dataclass(frozen=True)
+class _Known:
+    id: uuid.UUID
+    size: int
+    mtime: float
+
+
+def _identity(
+    album_artist: str, album: str, disc_no: int | None, track_no: int | None, title: str
+) -> Identity:
+    return (name_key(album_artist), name_key(album), disc_no, track_no, name_key(title))
+
+
+def _read_identities(root: Path, paths: list[str]) -> dict[str, tuple[Identity, int]]:
+    found = {}
+    for rel in paths:
+        try:
+            tags = read_tags(root / rel, extras=False)
+        except Exception:
+            continue  # unreadable files are reported by their own import job
+        ident = _identity(tags.album_artist, tags.album, tags.disc_no, tags.track_no, tags.title)
+        found[rel] = (ident, tags.duration_ms)
+    return found
+
+
+def _one_to_one(proposals: list[tuple[str, uuid.UUID]]) -> dict[str, uuid.UUID]:
+    """Keeps the pairs in which neither the path nor the track was proposed twice."""
+    paths = Counter(path for path, _ in proposals)
+    tracks = Counter(track for _, track in proposals)
+    return {path: track for path, track in proposals if paths[path] == 1 and tracks[track] == 1}
+
+
+async def _find_moves(
+    session: AsyncSession,
+    root: Path,
+    vanished: dict[str, _Known],
+    new: dict[str, tuple[int, float]],
+) -> tuple[dict[str, uuid.UUID], set[str]]:
+    """Pairs tracks whose file vanished with new paths holding the same file, so a moved or
+    renamed file keeps its track id, and with it likes, playlist entries and play history.
+
+    Matches by size + mtime first (what `mv` keeps), then by tags + duration (a copy that
+    lost its mtime, or the file replaced by another encoding). Ambiguous matches are left
+    alone. Returns {new path: track id} and the matched paths whose file must be re-read."""
+    by_stat: dict[tuple[int, float], list[uuid.UUID]] = defaultdict(list)
+    for known in vanished.values():
+        by_stat[(known.size, known.mtime)].append(known.id)
+    moved = _one_to_one(
+        [(path, ids[0]) for path, stat in new.items() if len(ids := by_stat.get(stat, [])) == 1]
+    )
+
+    left_ids = {k.id for k in vanished.values()} - set(moved.values())
+    left_paths = [path for path in new if path not in moved]
+    if not left_ids or not left_paths:
+        return moved, set()
+
+    by_identity: dict[Identity, list[tuple[uuid.UUID, int]]] = defaultdict(list)
+    for track_id, title, disc_no, track_no, duration_ms, album, album_artist in (
+        await session.execute(
+            select(
+                Track.id,
+                Track.title,
+                Track.disc_no,
+                Track.track_no,
+                Track.duration_ms,
+                Album.title,
+                Artist.name,
+            )
+            .join(Album, Album.id == Track.album_id)
+            .join(Artist, Artist.id == Album.artist_id)
+            .where(Track.id == any_(literal(list(left_ids), ARRAY(Uuid))))
+        )
+    ).all():
+        ident = _identity(album_artist, album, disc_no, track_no, title)
+        by_identity[ident].append((track_id, duration_ms))
+
+    proposals = []
+    for path, (ident, duration_ms) in (
+        await asyncio.to_thread(_read_identities, root, left_paths)
+    ).items():
+        candidates = [
+            track_id
+            for track_id, known_ms in by_identity.get(ident, [])
+            if abs(known_ms - duration_ms) <= MOVE_DURATION_TOLERANCE_MS
+        ]
+        if len(candidates) == 1:
+            proposals.append((path, candidates[0]))
+    retagged = _one_to_one(proposals)
+    return moved | retagged, set(retagged)
+
+
 async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
     root = ctx.settings.library_path
     if not root.is_dir():
         raise FileNotFoundError(f"Library path does not exist: {root}")
-    on_disk = await asyncio.to_thread(_walk, root.resolve())
+    root = root.resolve()
+    on_disk = await asyncio.to_thread(_walk, root)
 
     async with ctx.sessionmaker() as session:
         known = {
-            row.path: (row.size, row.mtime)
-            for row in await session.execute(select(Track.path, Track.size, Track.mtime))
+            row.path: _Known(row.id, row.size, row.mtime)
+            for row in await session.execute(select(Track.id, Track.path, Track.size, Track.mtime))
         }
-        changed = [p for p, stat in on_disk.items() if known.get(p) != stat]
-        removed = [p for p in known if p not in on_disk]
+        vanished = {path: k for path, k in known.items() if path not in on_disk}
+        new = {path: stat for path, stat in on_disk.items() if path not in known}
+        moves, reread = await _find_moves(session, root, vanished, new)
 
+        if moves:
+            pairs = (
+                func.unnest(
+                    literal(list(moves.values()), ARRAY(Uuid)), literal(list(moves), ARRAY(String))
+                )
+                .table_valued("id", "path")
+                .render_derived()
+            )
+            await session.execute(
+                update(Track).where(Track.id == pairs.c.id).values(path=pairs.c.path)
+            )
+        moved_ids = set(moves.values())
+        removed = [path for path, k in vanished.items() if k.id not in moved_ids]
+
+        def needs_import(path: str, stat: tuple[int, float]) -> bool:
+            if path in moves:
+                return path in reread
+            k = known.get(path)
+            return k is None or (k.size, k.mtime) != stat
+
+        changed = [path for path, stat in on_disk.items() if needs_import(path, stat)]
         for rel in changed:
             await enqueue(session, "import_track", {"path": rel}, dedupe_key=f"import:{rel}")
         if removed:
-            await session.execute(delete(Track).where(Track.path.in_(removed)))
+            await session.execute(
+                delete(Track).where(Track.path == any_(literal(removed, ARRAY(String))))
+            )
             await delete_orphans(session)
         await session.commit()
-    log.info("scan: %d files, %d to import, %d removed", len(on_disk), len(changed), len(removed))
+    log.info(
+        "scan: %d files, %d moved, %d to import, %d removed",
+        len(on_disk),
+        len(moves),
+        len(changed),
+        len(removed),
+    )
 
 
 async def _upsert_artist(session: AsyncSession, name: str) -> uuid.UUID:

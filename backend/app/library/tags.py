@@ -123,7 +123,8 @@ def _embedded_lyrics(path: Path) -> str | None:
     return None
 
 
-def read_tags(path: Path) -> TrackTags:
+def read_tags(path: Path, *, extras: bool = True) -> TrackTags:
+    """`extras=False` skips artwork and lyrics, which need further passes over the file."""
     try:
         audio = mutagen.File(path, easy=True)
     except mutagen.MutagenError as exc:
@@ -147,8 +148,8 @@ def read_tags(path: Path) -> TrackTags:
         codec=_codec(audio),
         bitrate=round(bitrate / 1000) if bitrate else None,
         sample_rate=getattr(audio.info, "sample_rate", None),
-        picture=_embedded_picture(path),
-        lyrics=_embedded_lyrics(path),
+        picture=_embedded_picture(path) if extras else None,
+        lyrics=_embedded_lyrics(path) if extras else None,
     )
 
 
