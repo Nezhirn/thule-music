@@ -1,0 +1,83 @@
+/* Breakpoints, shared with the panels' own styles: 1280px and up shows the right column,
+   below 900px is the phone layout. */
+.shell {
+  position: relative;
+  isolation: isolate;
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "nav main aside"
+    "player player player";
+  gap: var(--gap);
+  padding: var(--gap);
+  overflow: hidden;
+}
+
+.skip {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--accent-on);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip:focus {
+  transform: none;
+}
+
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 32px 40px;
+  overflow-y: auto;
+  outline: none;
+}
+
+/* Without the right column below this width; the player will open it as an overlay. */
+@media (max-width: 1279px) {
+  .shell {
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-areas:
+      "nav main"
+      "player player";
+  }
+}
+
+/* Phones: the page fills the screen, the sections are tabs at the bottom. The mini player
+   above them arrives with playback. */
+@media (max-width: 899px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "main"
+      "tabs";
+    gap: 0;
+    padding: 0;
+  }
+
+  .main {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .content {
+    padding: 8px 16px 32px;
+  }
+}

@@ -1,8 +1,14 @@
+import type { ReactNode } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
+import { useMe } from "./account/me";
 import { LoginPage, type LoginState } from "./auth/LoginPage";
 import { useSession } from "./auth/session";
 import { SetupPage } from "./auth/SetupPage";
 import { HomePage } from "./pages/HomePage";
+import { LibraryPage } from "./pages/LibraryPage";
+import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { SettingsPage } from "./settings/SettingsPage";
+import { AppShell } from "./shell/AppShell";
 import { Splash } from "./ui/Splash";
 import { Unreachable } from "./ui/Unreachable";
 
@@ -14,7 +20,26 @@ export function AppRoutes() {
         <Route path="/setup" element={<SetupPage />} />
       </Route>
       <Route element={<RequireSession />}>
-        <Route index element={<HomePage />} />
+        <Route element={<AppShell />}>
+          <Route index element={<HomePage />} />
+          <Route path="search" element={<PlaceholderPage section="search" />} />
+          <Route path="library" element={<LibraryPage />} />
+          <Route path="albums" element={<PlaceholderPage section="albums" />} />
+          <Route path="artists" element={<PlaceholderPage section="artists" />} />
+          <Route path="tracks" element={<PlaceholderPage section="tracks" />} />
+          <Route path="liked" element={<PlaceholderPage section="liked" />} />
+          <Route path="history" element={<PlaceholderPage section="history" />} />
+          <Route path="playlists/:id" element={<PlaceholderPage section="playlists" />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="admin"
+            element={
+              <AdminOnly>
+                <PlaceholderPage section="admin" />
+              </AdminOnly>
+            }
+          />
+        </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -40,4 +65,8 @@ function AnonymousOnly() {
   if (session.status === "unreachable") return <Unreachable onRetry={session.retry} />;
   if (session.status === "authenticated") return <Navigate to={state?.from ?? "/"} replace />;
   return <Outlet />;
+}
+
+function AdminOnly({ children }: { children: ReactNode }) {
+  return useMe()?.role === "admin" ? children : <Navigate to="/" replace />;
 }

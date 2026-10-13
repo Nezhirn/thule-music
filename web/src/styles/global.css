@@ -1,4 +1,26 @@
-/* Design tokens. Stage 2 turns the accent, the blur and the cover tint into user settings. */
+/* Design tokens. The accent variables are overwritten with the user's accent (ThemeProvider);
+   the values here are the default accent's. Text colours stay readable (4.5:1) on the glass
+   over any backdrop the theme allows: theme.ts checks them, a test keeps the two in sync. */
+
+/* Registered so the backdrop can fade from one cover's colours to the next. */
+@property --ambient-1 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --ambient-2 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --ambient-3 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
 :root {
   color-scheme: dark;
   --font:
@@ -6,25 +28,46 @@
 
   --bg: #0d0e12;
   --text: #f4f4f7;
-  --text-muted: #b7b8c0;
-  --danger: #ff7a88;
+  --text-muted: #c0c1c8;
+  --danger: #ffa2a9;
+  --success: #4ade80;
 
-  /* Accent: a fill under white text (4.8:1), and a lighter shade for text on dark (7.6:1). */
   --accent: #6e56f8;
-  --accent-hover: #7d67ff;
+  --accent-hover: #6144e6;
   --accent-on: #ffffff;
-  --accent-text: #a594ff;
+  --accent-text: #b2b3ff;
 
-  /* Frosted glass; opaque where blur is unavailable or unwanted (see below). */
-  --glass: rgb(28 29 36 / 0.55);
+  /* Frosted glass; opaque where blur is off, unavailable or unwanted (see below). */
+  --glass: rgb(28 29 36 / 0.6);
   --glass-border: rgb(255 255 255 / 0.12);
   --glass-blur: blur(28px) saturate(150%);
+  /* Menus and other popups: over the glass, where a second blur doesn't take, so nearly
+     opaque. */
+  --popup: rgb(30 31 39 / 0.97);
+  /* Rows and controls on the glass. Never lighter than the highlight theme.ts allows for. */
+  --hover: rgb(255 255 255 / 0.06);
+  --selected: rgb(255 255 255 / 0.08);
   --field: rgb(255 255 255 / 0.06);
   --field-border: rgb(255 255 255 / 0.16);
+  --divider: rgb(255 255 255 / 0.08);
 
   --radius-lg: 22px;
   --radius-md: 12px;
+  --radius-sm: 8px;
   --shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+  --gap: 12px;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 30px;
+}
+
+:root[data-blur="off"] {
+  --glass: rgb(28 29 36 / 0.96);
+  --glass-blur: none;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -56,21 +99,50 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 var(--font);
+  font: var(--text-md) / 1.5 var(--font);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
 
 h1,
 h2,
-p {
+h3,
+p,
+ul,
+ol {
   margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--accent-text);
+}
+
+img {
+  display: block;
+  max-width: 100%;
 }
 
 :focus-visible {
@@ -85,4 +157,14 @@ p {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* A frosted panel: the sidebar, the content, the player, cards on the sign-in screens.
+   No specificity, so a component's own styles can change its shape. */
+:where(.glass) {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }

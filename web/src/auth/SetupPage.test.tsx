@@ -30,7 +30,9 @@ test("creates the administrator and signs in", async () => {
   await user.type(screen.getByLabelText("Repeat password"), "secret-password");
   await user.click(screen.getByRole("button", { name: "Create account" }));
 
-  expect(await screen.findByRole("heading", { name: "Ada Lovelace" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: /Ada Lovelace/ }),
+  ).toBeInTheDocument();
   expect(registered).toEqual([
     { username: "ada", password: "secret-password", display_name: "Ada Lovelace" },
   ]);

@@ -16,5 +16,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Lets a test read the tokens in global.css (other CSS imports stay empty in tests).
+    css: { include: [/global\.css/] },
   },
 });

@@ -13,9 +13,20 @@
     opacity 0.15s;
 }
 
+.small {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: var(--text-sm);
+}
+
 .button:disabled {
   cursor: default;
-  opacity: 0.7;
+  opacity: 0.5;
+}
+
+/* Busy rather than unavailable: the label says what is happening, so keep it readable. */
+.button[aria-busy="true"] {
+  opacity: 0.8;
 }
 
 .primary {
@@ -33,5 +44,5 @@
 }
 
 .secondary:not(:disabled):hover {
-  background: rgb(255 255 255 / 0.12);
+  background: var(--selected);
 }

@@ -1,0 +1,68 @@
+.button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.button:not(:disabled):hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.button[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sm {
+  width: 32px;
+  height: 32px;
+}
+
+.sm .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.md {
+  width: 40px;
+  height: 40px;
+}
+
+.md .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.lg {
+  width: 48px;
+  height: 48px;
+}
+
+.lg .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.primary,
+.primary:not(:disabled):hover {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+
+.primary:not(:disabled):hover {
+  background: var(--accent-hover);
+}

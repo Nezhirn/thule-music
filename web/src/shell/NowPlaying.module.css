@@ -1,0 +1,25 @@
+.aside {
+  grid-area: aside;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 1279px) {
+  .aside {
+    display: none;
+  }
+}

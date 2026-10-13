@@ -19,8 +19,8 @@ test("on first run the administrator account is created in the app", async ({ pa
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: "Администратор" })).toBeVisible();
-  await expect(page.getByText("@admin")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /Администратор/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Аккаунт: Администратор" })).toBeVisible();
 
   // From now on the setup page is gone.
   await page.goto("/setup");

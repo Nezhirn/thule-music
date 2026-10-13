@@ -57,7 +57,7 @@ npm run dev   # http://localhost:5173
 | Команда | Что делает |
 |---|---|
 | `npm run check` | актуальность типов API, ESLint + Prettier, TypeScript, юнит-тесты (Vitest + MSW) |
-| `npm run e2e` | Playwright против настоящего бэкенда |
+| `npm run e2e` | Playwright против настоящего бэкенда, с проверкой доступности (axe-core) |
 | `npm run verify` | всё вместе |
 
 E2E-стенд поднимается сам (`web/e2e/stack/`):

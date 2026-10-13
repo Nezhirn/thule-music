@@ -1,8 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
-import { apiClient, createUser, signIn } from "./api";
+import { expect, test } from "@playwright/test";
+import { accountButton, apiClient, createUser, signedIn, signIn, signOut } from "./api";
 
 const REFRESH_TOKEN_KEY = "thule.refreshToken";
-const signedIn = (page: Page) => expect(page.getByText("Signed in as")).toBeVisible();
 
 test("sign in, stay signed in across reloads, sign out", async ({ page, baseURL }) => {
   const account = await createUser(baseURL!);
@@ -16,14 +15,13 @@ test("sign in, stay signed in across reloads, sign out", async ({ page, baseURL 
 
   await page.getByLabel("Password").fill(account.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await signedIn(page);
-  await expect(page.getByText(`@${account.username}`)).toBeVisible();
+  await expect(accountButton(page)).toHaveAccessibleName(`Account: ${account.username}`);
 
   await page.reload();
   await signedIn(page);
 
   const token = await page.evaluate((key) => localStorage.getItem(key), REFRESH_TOKEN_KEY);
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await signOut(page);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("You signed out.");
   // The server revoked the token, not just the browser forgetting it.
@@ -83,7 +81,7 @@ test("signing out in one tab signs out the others", async ({ context, page, base
   await other.goto("/");
   await signedIn(other);
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await signOut(page);
   await expect(other.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
@@ -94,8 +92,9 @@ test("the language is saved to the account and follows it to other devices", asy
 }) => {
   const account = await createUser(baseURL!);
   await signIn(page, account);
-  await page.getByRole("button", { name: "Русский" }).click();
-  await expect(page.getByText("Вы вошли как")).toBeVisible();
+  await page.goto("/settings");
+  await page.getByRole("radio", { name: "Русский" }).check();
+  await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
 
   const device = await browser.newContext({ locale: "en-US" });
   const other = await device.newPage();
@@ -104,6 +103,6 @@ test("the language is saved to the account and follows it to other devices", asy
   await other.getByLabel("Username").fill(account.username);
   await other.getByLabel("Password").fill(account.password);
   await other.getByRole("button", { name: "Sign in" }).click();
-  await expect(other.getByText("Вы вошли как")).toBeVisible();
+  await expect(other.getByRole("button", { name: `Аккаунт: ${account.username}` })).toBeVisible();
   await device.close();
 });

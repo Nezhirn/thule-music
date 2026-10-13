@@ -1,0 +1,33 @@
+.cards {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.field {
+  display: grid;
+  gap: 12px;
+}
+
+.fieldText {
+  display: grid;
+  gap: 2px;
+}
+
+.fieldTitle {
+  font-weight: 600;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.divider {
+  height: 1px;
+  background: var(--divider);
+}
+
+.end {
+  justify-self: start;
+}

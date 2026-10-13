@@ -1,41 +1,33 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { meQuery } from "../auth/queries";
-import { useSession } from "../auth/session";
+import { Disc3 } from "lucide-react";
+import { displayName, useMe } from "../account/me";
 import { useI18n } from "../i18n";
-import { Button } from "../ui/Button";
-import { CenteredLayout } from "../ui/CenteredLayout";
-import styles from "./HomePage.module.css";
+import { EmptyState } from "../ui/EmptyState";
+import { PageHeader } from "../ui/PageHeader";
 
-// Placeholder until the app shell (stage 2): who is signed in, and signing out.
+type PartOfDay = "morning" | "afternoon" | "evening" | "night";
+
+function partOfDay(date: Date): PartOfDay {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 17) return "afternoon";
+  if (hour >= 17 && hour < 23) return "evening";
+  return "night";
+}
+
+// The catalogue (new albums, picks) arrives in stage 3.
 export function HomePage() {
   const { t } = useI18n();
-  const session = useSession();
-  const me = useQuery(meQuery).data;
-  const [signingOut, setSigningOut] = useState(false);
+  const me = useMe();
   if (!me) return null;
-
   return (
-    <CenteredLayout>
-      <div className={styles.account}>
-        <p className={styles.muted}>{t.auth.signedInAs}</p>
-        <h1 className={styles.name}>{me.display_name ?? me.username}</h1>
-        <p className={styles.muted}>
-          @{me.username}
-          {me.role === "admin" && <span className={styles.badge}>{t.auth.admin}</span>}
-        </p>
-      </div>
-      <p className={styles.muted}>{t.home.comingSoon}</p>
-      <Button
-        variant="secondary"
-        busyLabel={signingOut && t.auth.signingOut}
-        onClick={() => {
-          setSigningOut(true);
-          void session.signOut();
-        }}
-      >
-        {t.auth.signOut}
-      </Button>
-    </CenteredLayout>
+    <>
+      <PageHeader
+        title={t.home.greeting[partOfDay(new Date())](displayName(me))}
+        documentTitle={t.nav.home}
+      />
+      <EmptyState icon={Disc3} title={t.home.soonTitle}>
+        {t.home.soonText}
+      </EmptyState>
+    </>
   );
 }

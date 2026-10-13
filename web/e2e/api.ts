@@ -39,11 +39,23 @@ export async function createUser(baseURL: string): Promise<Account> {
   return account;
 }
 
+/** The account menu's button: there once the app has started signed in, in either language. */
+export const accountButton = (page: Page) =>
+  page.getByRole("button", { name: /^(Account|Аккаунт): / });
+
+export const signedIn = (page: Page) => expect(accountButton(page)).toBeVisible();
+
 /** Signs in through the sign-in page (English UI). */
 export async function signIn(page: Page, account: Account) {
   await page.goto("/login");
   await page.getByLabel("Username").fill(account.username);
   await page.getByLabel("Password").fill(account.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByText("Signed in as")).toBeVisible();
+  await signedIn(page);
+}
+
+/** Signs out through the account menu (English UI). */
+export async function signOut(page: Page) {
+  await accountButton(page).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
 }

@@ -1,0 +1,79 @@
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  cursor: pointer;
+}
+
+.rainbow {
+  background: conic-gradient(#ff5f5f, #ffd25f, #5fff8f, #5fd2ff, #8f5fff, #ff5fd2, #ff5f5f);
+}
+
+/* Hidden but focusable and clickable over the whole swatch. */
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.check {
+  width: 18px;
+  height: 18px;
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.6));
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.input:checked + .check,
+.chosen .check {
+  visibility: visible;
+}
+
+.swatch:has(.input:checked),
+.chosen {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+.swatch:has(.input:focus-visible) {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 5px;
+}
+
+@media (max-width: 599px) {
+  .picker,
+  .swatches {
+    gap: 8px;
+  }
+
+  .swatch {
+    width: 32px;
+    height: 32px;
+  }
+}

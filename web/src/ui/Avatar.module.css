@@ -1,0 +1,14 @@
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  color: var(--text-muted);
+  object-fit: cover;
+}
+
+.silhouette {
+  width: 56%;
+  height: 56%;
+}

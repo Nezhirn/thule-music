@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { focusManager } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { getAccessToken } from "../auth/tokens";
 import { server } from "./server";
@@ -10,7 +11,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  focusManager.setFocused(undefined);
   localStorage.clear();
+  document.documentElement.removeAttribute("style");
+  document.documentElement.removeAttribute("data-blur");
   // With the refresh token gone, this drops the access token the module keeps in memory, so
   // it doesn't leak into the next test.
   await getAccessToken();

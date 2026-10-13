@@ -7,18 +7,6 @@
   isolation: isolate;
 }
 
-/* Soft colour fields the glass picks up, like the cover tint inside the app. */
-.backdrop {
-  position: absolute;
-  inset: -20%;
-  z-index: -1;
-  background:
-    radial-gradient(40% 45% at 22% 30%, rgb(110 86 248 / 0.55), transparent 70%),
-    radial-gradient(35% 40% at 78% 25%, rgb(255 95 158 / 0.4), transparent 70%),
-    radial-gradient(45% 45% at 60% 85%, rgb(34 195 230 / 0.3), transparent 70%), var(--bg);
-  filter: blur(40px);
-}
-
 .top {
   display: flex;
   align-items: center;
@@ -39,11 +27,6 @@
   display: grid;
   gap: 20px;
   padding: 32px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow);
 }
 

@@ -1,5 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { isSaving } from "../account/preferences";
 import { api } from "../api/client";
 import { unwrap } from "../api/errors";
 import { useI18n } from "../i18n";
@@ -68,6 +69,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     [queryClient, restore],
   );
+
+  // Changes made on other devices arrive when the user comes back to this tab, unless they
+  // are changing something here at that moment.
+  const authenticated = state.status === "authenticated";
+  useQuery({ ...meQuery, enabled: authenticated, refetchOnWindowFocus: "always" });
+  const accountLanguage = useQuery({
+    ...preferencesQuery,
+    enabled: authenticated,
+    refetchOnWindowFocus: () => (isSaving(queryClient) ? false : "always"),
+  }).data?.language;
+  // The account's language, once changed on another device (or put back after a failed save).
+  useEffect(() => {
+    if (authenticated && accountLanguage) setLanguage(accountLanguage);
+  }, [authenticated, accountLanguage, setLanguage]);
 
   const value = useMemo<Session>(
     () => ({

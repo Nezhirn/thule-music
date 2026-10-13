@@ -1,0 +1,39 @@
+/* The alphas match AMBIENT_ALPHA in theme.ts, which keeps text on the glass readable. */
+.backdrop {
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      40% 45% at 22% 30%,
+      color-mix(in srgb, var(--ambient-1) 55%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      35% 40% at 78% 25%,
+      color-mix(in srgb, var(--ambient-2) 40%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      45% 45% at 60% 85%,
+      color-mix(in srgb, var(--ambient-3) 30%, transparent),
+      transparent 70%
+    ),
+    var(--bg);
+  transition:
+    --ambient-1 1.2s ease,
+    --ambient-2 1.2s ease,
+    --ambient-3 1.2s ease;
+}
+
+/* Blurring the whole backdrop costs; it is off together with the frosted glass. */
+.soft {
+  filter: blur(40px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop {
+    transition: none;
+  }
+}
