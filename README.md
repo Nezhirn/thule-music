@@ -39,3 +39,7 @@ cp .env.example .env   # пропишите THULE_DATABASE_URL и THULE_SECRET_K
 ### Docker
 
 `docker compose up -d --build` поднимает `api` и `worker` и берёт настройки из `backend/.env`. Папка с музыкой задаётся переменной `MUSIC_LIBRARY` (по умолчанию `./library`).
+
+## Облачные сессии Claude Code
+
+Скрипт настройки окружения и переменные — в [scripts/cloud/](scripts/cloud/README.md).
