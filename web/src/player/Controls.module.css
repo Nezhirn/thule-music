@@ -1,0 +1,50 @@
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.large {
+  justify-content: space-between;
+  width: 100%;
+}
+
+/* Filled play, pause and skip icons, as on hardware. */
+.play svg,
+.skip svg {
+  fill: currentColor;
+}
+
+.playLarge {
+  width: 64px;
+  height: 64px;
+}
+
+.playLarge svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* On: the accent, and a dot under it, so it isn't told by colour alone. */
+.toggle {
+  position: relative;
+}
+
+.toggle[aria-pressed="true"],
+.toggle[data-active] {
+  color: var(--accent-text);
+}
+
+.toggle[aria-pressed="true"]::after,
+.toggle[data-active]::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: currentColor;
+}

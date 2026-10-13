@@ -1,0 +1,466 @@
+import { createStore, type StoreApi } from "zustand/vanilla";
+import type { Schemas } from "../api/client";
+import type { Track } from "../catalog/queries";
+import * as queue from "./queue";
+import { EMPTY_QUEUE, currentItem, type Queue, type QueueItem } from "./queue";
+
+export type Quality = Schemas["Quality"];
+export type StreamUrl = Schemas["StreamUrl"];
+export type Repeat = "off" | "all" | "one";
+
+/** What the queue was started from, to show its play button as playing. */
+export interface Source {
+  type: "album" | "artist" | "tracks";
+  id: string;
+}
+
+export interface PlayerState {
+  queue: Queue;
+  source: Source | null;
+  /** Playing, or about to (the stream is on its way). */
+  playing: boolean;
+  /** Waiting for audio data. */
+  buffering: boolean;
+  /** Seconds into the current track. */
+  position: number;
+  /** Seconds. The track's length from its tags until the stream reports its own. */
+  duration: number;
+  repeat: Repeat;
+  /** 0..1 */
+  volume: number;
+  muted: boolean;
+  /** What the current stream is: quality, codec, bitrate. */
+  stream: Pick<StreamUrl, "quality" | "codec" | "bitrate"> | null;
+  /** The track that last failed to play, until another one plays. */
+  failed: Track | null;
+}
+
+/** The parts of an <audio> element the player uses; tests pass a fake. */
+export type AudioLike = Pick<
+  HTMLAudioElement,
+  | "src"
+  | "currentTime"
+  | "duration"
+  | "paused"
+  | "ended"
+  | "volume"
+  | "muted"
+  | "preload"
+  | "play"
+  | "pause"
+  | "canPlayType"
+  | "removeAttribute"
+  | "load"
+  | "addEventListener"
+  | "removeEventListener"
+>;
+
+/** What the player keeps on the device: the queue survives a reload. */
+export interface Saved {
+  queue: Queue;
+  source: Source | null;
+  repeat: Repeat;
+  position: number;
+}
+
+export interface Deps {
+  audio: AudioLike;
+  streamUrl(trackId: string, quality: Quality): Promise<StreamUrl>;
+  /** Records a play of the track (scrobble). */
+  scrobble(trackId: string, listenedMs: number): Promise<void>;
+  /** The quality the user picked. */
+  quality(): Quality;
+  now?(): number;
+  random?(): number;
+}
+
+export interface PlayOptions {
+  /** The index of the track to start at; random when shuffling without one. */
+  start?: number;
+  /** Turn shuffle on (true) or off (false); unchanged when left out. */
+  shuffle?: boolean;
+  source?: Source | null;
+}
+
+export interface Player {
+  store: StoreApi<PlayerState>;
+  /** Replaces the queue with `tracks` and plays. */
+  play(tracks: Track[], options?: PlayOptions): void;
+  resume(): void;
+  pause(): void;
+  toggle(): void;
+  next(): void;
+  previous(): void;
+  seek(seconds: number): void;
+  /** Plays the queued item with `key`. */
+  jump(key: string): void;
+  playNext(tracks: Track[]): void;
+  addToQueue(tracks: Track[]): void;
+  remove(key: string): void;
+  clearUpcoming(): void;
+  setShuffle(on: boolean): void;
+  setRepeat(repeat: Repeat): void;
+  setVolume(volume: number): void;
+  setMuted(muted: boolean): void;
+  /** Plays the current track at the chosen quality, if it isn't already. */
+  applyQuality(): void;
+  /** Restores a saved queue, paused. */
+  restore(saved: Saved): void;
+  /** Stops and empties the queue (signing out). */
+  reset(): void;
+  dispose(): void;
+}
+
+/** A play counts (is scrobbled) after this much listening, or half the track if shorter. */
+export const SCROBBLE_AFTER = 30;
+/** "Previous" past this many seconds into a track starts it over instead. */
+export const RESTART_AFTER = 3;
+/** A stream URL this close to expiring is renewed before playing on (ms). */
+const EXPIRY_MARGIN = 60_000;
+/** Tracks that fail in a row before the player gives up skipping. */
+const MAX_FAILURES = 3;
+/** Larger jumps of the playhead between time updates are seeks, not listening. */
+const MAX_TICK = 2;
+
+const OPUS = 'audio/ogg; codecs="opus"';
+
+export const INITIAL_STATE: PlayerState = {
+  queue: EMPTY_QUEUE,
+  source: null,
+  playing: false,
+  buffering: false,
+  position: 0,
+  duration: 0,
+  repeat: "off",
+  volume: 1,
+  muted: false,
+  stream: null,
+  failed: null,
+};
+
+export function createPlayer(deps: Deps): Player {
+  const { audio } = deps;
+  const now = deps.now ?? Date.now;
+  const random = deps.random ?? Math.random;
+  const store = createStore<PlayerState>(() => INITIAL_STATE);
+  const get = store.getState;
+  const set = store.setState;
+  // Transcodes are Ogg Opus; a browser that can't play it gets the original file.
+  const opus = audio.canPlayType(OPUS) !== "";
+
+  // The stream on the element: which item, until when its URL is valid, at what quality.
+  let loaded: { key: string; expiresAt: number; quality: Quality } | null = null;
+  // Each load gets a number; a stream URL arriving for an older one is dropped.
+  let loads = 0;
+  // The item whose stream was already reloaded after an error.
+  let retried: string | null = null;
+  let failures = 0;
+  // Pauses the player makes itself while switching tracks: not the user's.
+  let ownPause = false;
+  // Listening to the current item, for the scrobble.
+  let listen = { key: "", seconds: 0, at: 0, scrobbled: false };
+
+  audio.preload = "auto";
+
+  const current = () => currentItem(get().queue);
+  // Whether the element holds the current item's stream: events of an old one are ignored.
+  const live = () => loaded !== null && loaded.key === current()?.key;
+  const wanted = (): Quality => (opus ? deps.quality() : "original");
+
+  function silence() {
+    if (audio.paused) return;
+    ownPause = true;
+    audio.pause();
+  }
+
+  function startListening(key: string, at: number) {
+    listen = { key, seconds: 0, at, scrobbled: false };
+  }
+
+  async function load(item: QueueItem, at: number, autoplay: boolean) {
+    const id = ++loads;
+    loaded = null;
+    silence();
+    if (listen.key !== item.key) startListening(item.key, at);
+    set({
+      playing: autoplay,
+      buffering: autoplay,
+      position: at,
+      duration: item.track.duration_ms / 1000,
+      stream: null,
+    });
+    const quality = wanted();
+    let url: StreamUrl;
+    try {
+      url = await deps.streamUrl(item.track.id, quality);
+    } catch {
+      if (id === loads) fail(item);
+      return;
+    }
+    if (id !== loads) return;
+    loaded = { key: item.key, expiresAt: Date.parse(url.expires_at), quality };
+    audio.src = url.url;
+    // A new source drops the element's pending events, the pause from silence() among them.
+    ownPause = false;
+    // Before the metadata loads this sets where playback starts.
+    if (at > 0) audio.currentTime = at;
+    listen.at = at;
+    set({ stream: { quality: url.quality, codec: url.codec, bitrate: url.bitrate } });
+    if (autoplay) start();
+  }
+
+  function start() {
+    set({ playing: true });
+    audio.play().catch((error: unknown) => {
+      // A newer stream replaced this one, or the element reports the error itself.
+      const name = error instanceof DOMException ? error.name : "";
+      if (name === "AbortError" || name === "NotSupportedError") return;
+      // NotAllowedError: the browser wants a click first.
+      set({ playing: false, buffering: false });
+    });
+  }
+
+  /** Plays the current item from `position`, loading or renewing its stream as needed. */
+  function resume() {
+    const item = current();
+    if (!item) return;
+    if (!loaded || loaded.key !== item.key || now() > loaded.expiresAt - EXPIRY_MARGIN) {
+      void load(item, get().position, true);
+      return;
+    }
+    start();
+  }
+
+  function pause() {
+    set({ playing: false, buffering: false });
+    audio.pause();
+  }
+
+  /** Moves to `next` (a queue at another item) and plays it from the start. */
+  function go(next: Queue) {
+    set({ queue: next });
+    const item = currentItem(next);
+    if (item) void load(item, 0, true);
+  }
+
+  function seek(seconds: number) {
+    const { duration } = get();
+    const to = Math.min(Math.max(seconds, 0), duration || seconds);
+    set({ position: to });
+    if (live()) audio.currentTime = to;
+  }
+
+  function fail(item: QueueItem) {
+    failures += 1;
+    const wasPlaying = get().playing;
+    set({ failed: item.track, buffering: false });
+    const next = queue.step(get().queue, 1, false);
+    if (wasPlaying && next && failures < MAX_FAILURES) {
+      go(next);
+    } else {
+      loaded = null;
+      set({ playing: false });
+    }
+  }
+
+  function onError() {
+    const item = current();
+    if (!item || loaded?.key !== item.key) return; // an old stream
+    if (retried !== item.key) {
+      // Most likely the URL expired (a long pause) or the file changed: renew it once.
+      retried = item.key;
+      void load(item, audio.currentTime || get().position, get().playing);
+      return;
+    }
+    fail(item);
+  }
+
+  function onEnded() {
+    const { repeat, queue: q } = get();
+    const item = current();
+    if (repeat === "one" && item) {
+      startListening(item.key, 0);
+      audio.currentTime = 0;
+      start();
+      return;
+    }
+    const next = queue.step(q, 1, repeat === "all");
+    if (next) {
+      go(next);
+      return;
+    }
+    // The end: back to the first track, stopped, ready to play it all again.
+    const first = { ...q, current: 0 };
+    loaded = null;
+    listen.key = "";
+    set({
+      queue: first,
+      playing: false,
+      buffering: false,
+      position: 0,
+      duration: (currentItem(first)?.track.duration_ms ?? 0) / 1000,
+    });
+  }
+
+  function onTimeUpdate() {
+    if (!live()) return;
+    const time = audio.currentTime;
+    const tick = time - listen.at;
+    listen.at = time;
+    const item = current();
+    if (item?.key === listen.key && !audio.paused && tick > 0 && tick < MAX_TICK) {
+      listen.seconds += tick;
+      const length = item.track.duration_ms / 1000 || get().duration;
+      const threshold = length > 0 ? Math.min(SCROBBLE_AFTER, length / 2) : SCROBBLE_AFTER;
+      if (!listen.scrobbled && listen.seconds >= threshold) {
+        listen.scrobbled = true;
+        deps.scrobble(item.track.id, Math.round(listen.seconds * 1000)).catch(() => {});
+      }
+    }
+    set({ position: time });
+  }
+
+  const handlers: Record<string, () => void> = {
+    play: () => set({ playing: true }),
+    pause: () => {
+      if (ownPause) {
+        ownPause = false;
+        return;
+      }
+      // Paused from outside: the system, another app taking the audio, headphones out.
+      if (!audio.ended) set({ playing: false, buffering: false });
+    },
+    playing: () => {
+      failures = 0;
+      retried = null;
+      set({ buffering: false, failed: null });
+    },
+    waiting: () => {
+      if (live()) set({ buffering: true });
+    },
+    timeupdate: onTimeUpdate,
+    seeked: () => {
+      if (!live()) return;
+      listen.at = audio.currentTime;
+      set({ position: audio.currentTime });
+    },
+    durationchange: () => {
+      if (live() && Number.isFinite(audio.duration) && audio.duration > 0) {
+        set({ duration: audio.duration });
+      }
+    },
+    ended: onEnded,
+    error: onError,
+  };
+  for (const [event, handler] of Object.entries(handlers)) audio.addEventListener(event, handler);
+
+  function applyVolume() {
+    const { volume, muted } = get();
+    audio.volume = volume;
+    audio.muted = muted;
+  }
+
+  function reset() {
+    loads += 1;
+    loaded = null;
+    silence();
+    audio.removeAttribute("src");
+    audio.load();
+    ownPause = false;
+    listen.key = "";
+    const { volume, muted } = get();
+    set({ ...INITIAL_STATE, volume, muted });
+  }
+
+  return {
+    store,
+    play(tracks, options = {}) {
+      if (tracks.length === 0) return;
+      const shuffle = options.shuffle ?? get().queue.unshuffled !== null;
+      const start = options.start ?? (shuffle ? Math.floor(random() * tracks.length) : 0);
+      set({ source: options.source ?? null, failed: null });
+      failures = 0;
+      go(queue.newQueue(tracks, start, shuffle, random));
+    },
+    resume,
+    pause,
+    toggle() {
+      if (get().playing) pause();
+      else resume();
+    },
+    next() {
+      const next = queue.step(get().queue, 1, get().repeat !== "off");
+      if (next) go(next);
+    },
+    previous() {
+      const { queue: q, position, repeat } = get();
+      const back = position <= RESTART_AFTER ? queue.step(q, -1, repeat !== "off") : null;
+      if (back) {
+        go(back);
+        return;
+      }
+      seek(0);
+      if (!get().playing) resume();
+    },
+    seek,
+    jump(key) {
+      const next = queue.jump(get().queue, key);
+      if (next) go(next);
+    },
+    playNext(tracks) {
+      const wasEmpty = !current();
+      set({ queue: queue.playNext(get().queue, tracks) });
+      if (wasEmpty) set({ position: 0, duration: (current()?.track.duration_ms ?? 0) / 1000 });
+    },
+    addToQueue(tracks) {
+      const wasEmpty = !current();
+      set({ queue: queue.addToQueue(get().queue, tracks) });
+      if (wasEmpty) set({ position: 0, duration: (current()?.track.duration_ms ?? 0) / 1000 });
+    },
+    remove(key) {
+      set({ queue: queue.remove(get().queue, key) });
+    },
+    clearUpcoming() {
+      set({ queue: queue.clearUpcoming(get().queue) });
+    },
+    setShuffle(on) {
+      const q = get().queue;
+      set({ queue: on ? queue.shuffled(q, random) : queue.unshuffled(q) });
+    },
+    setRepeat(repeat) {
+      set({ repeat });
+    },
+    setVolume(volume) {
+      set({ volume: Math.min(Math.max(volume, 0), 1), muted: volume <= 0 });
+      applyVolume();
+    },
+    setMuted(muted) {
+      // Unmuting at zero volume would still be silent.
+      set(muted || get().volume > 0 ? { muted } : { muted, volume: 0.5 });
+      applyVolume();
+    },
+    applyQuality() {
+      const item = current();
+      if (item && live() && loaded?.quality !== wanted()) {
+        void load(item, audio.currentTime, get().playing);
+      }
+    },
+    restore(saved) {
+      const item = currentItem(saved.queue);
+      set({
+        queue: saved.queue,
+        source: saved.source,
+        repeat: saved.repeat,
+        position: item ? saved.position : 0,
+        duration: (item?.track.duration_ms ?? 0) / 1000,
+      });
+    },
+    reset,
+    dispose() {
+      for (const [event, handler] of Object.entries(handlers)) {
+        audio.removeEventListener(event, handler);
+      }
+      reset();
+    },
+  };
+}

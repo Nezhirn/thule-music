@@ -2,24 +2,70 @@
   grid-area: aside;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   padding: 20px;
   overflow-y: auto;
 }
 
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
 .title {
   font-size: var(--text-md);
   font-weight: 700;
+  outline: none;
 }
 
-.note {
+.close {
+  display: none;
+}
+
+.playing {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.cover {
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.4);
+}
+
+.stream {
   color: var(--text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Narrower windows: no right column; the player's queue button opens it over the page. */
 @media (max-width: 1279px) {
   .aside {
+    display: none;
+  }
+
+  .aside[data-open] {
+    display: flex;
+    grid-area: main;
+    justify-self: end;
+    z-index: 5;
+    width: min(360px, 100%);
+    background: var(--popup);
+    box-shadow: var(--shadow);
+  }
+
+  .close {
+    display: inline-grid;
+  }
+}
+
+/* Phones have the full player instead. */
+@media (max-width: 899px) {
+  .aside[data-open] {
     display: none;
   }
 }

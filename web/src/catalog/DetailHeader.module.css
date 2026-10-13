@@ -67,6 +67,13 @@
   text-decoration: underline;
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
 @media (max-width: 899px) {
   .header {
     grid-template-columns: minmax(0, 1fr);
@@ -84,7 +91,8 @@
     justify-items: center;
   }
 
-  .meta {
+  .meta,
+  .actions {
     justify-content: center;
   }
 }

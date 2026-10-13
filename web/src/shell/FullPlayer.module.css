@@ -1,0 +1,65 @@
+/* Opaque: the page doesn't show through. The tint is the page tint's strength
+   (--tint-strength), checked against the text colours in theme.ts, here over a background
+   darker than the glass that check assumes. */
+.dialog {
+  --player-tint: var(--accent);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--player-tint) var(--tint-strength), transparent),
+      transparent 70%
+    ),
+    var(--bg);
+  color: var(--text);
+  overscroll-behavior: contain;
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.7);
+}
+
+.body {
+  display: grid;
+  gap: 18px;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: calc(8px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+}
+
+.top {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+}
+
+.heading {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+}
+
+.cover {
+  width: min(100%, 420px);
+  justify-self: center;
+  margin: 8px 0;
+  box-shadow: 0 24px 56px rgb(0 0 0 / 0.5);
+}
+
+.queue {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.queue .heading {
+  text-align: left;
+  font-size: var(--text-md);
+}

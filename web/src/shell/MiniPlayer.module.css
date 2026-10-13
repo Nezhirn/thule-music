@@ -1,0 +1,88 @@
+.mini {
+  grid-area: mini;
+  position: relative;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin: 0 8px 6px;
+  padding: 6px 8px 6px 6px;
+  border-radius: var(--radius-md);
+  background: var(--popup);
+  overflow: hidden;
+}
+
+.open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.open:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.cover {
+  flex: none;
+  width: 44px;
+  border-radius: 8px;
+}
+
+.titles {
+  display: grid;
+  min-width: 0;
+}
+
+.title,
+.artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.artist {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.play {
+  color: var(--text);
+}
+
+.play svg {
+  fill: currentColor;
+}
+
+.line {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    to right,
+    var(--text) calc(var(--progress) * 100%),
+    rgb(255 255 255 / 0.15) calc(var(--progress) * 100%)
+  );
+}
+
+@media (max-width: 899px) {
+  .mini {
+    display: flex;
+  }
+}

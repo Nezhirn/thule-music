@@ -4,7 +4,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
   align-items: center;
   gap: 24px;
-  padding: 12px 20px;
+  padding: 10px 20px;
 }
 
 .track {
@@ -15,12 +15,15 @@
 }
 
 .cover {
+  flex: none;
+  width: 56px;
+  border-radius: 10px;
+}
+
+.empty {
   display: grid;
   place-items: center;
-  flex: none;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
+  height: 56px;
   background: var(--selected);
   color: var(--text-muted);
 }
@@ -35,50 +38,27 @@
 .center {
   display: grid;
   justify-items: center;
-  gap: 4px;
+  gap: 2px;
+  width: min(100%, 600px);
+  justify-self: center;
 }
 
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: min(100%, 560px);
-}
-
-.time {
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.range {
-  flex: 1;
-  min-width: 0;
-  accent-color: var(--accent-text);
-}
-
-.volume {
+.side {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.volume .range {
-  flex: 0 1 120px;
+.queue[aria-expanded="true"] {
+  color: var(--accent-text);
 }
 
-.volumeIcon {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  color: var(--text-muted);
+/* With the right column there, the queue is in it. */
+@media (min-width: 1280px) {
+  .queue {
+    display: none;
+  }
 }
 
 @media (max-width: 899px) {

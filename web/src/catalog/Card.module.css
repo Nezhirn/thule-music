@@ -22,8 +22,39 @@
 }
 
 .art {
-  margin-bottom: 8px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+
+.artWrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+/* Over the card's link; shows on the card under the pointer or in focus, and while it plays. */
+.play {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.card:hover .play,
+.card:focus-within .play,
+.play[data-playing] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play {
+    transition: none;
+  }
 }
 
 .title {

@@ -21,9 +21,14 @@ test("sign in, stay signed in across reloads, sign out", async ({ page, baseURL 
   await signedIn(page);
 
   const token = await page.evaluate((key) => localStorage.getItem(key), REFRESH_TOKEN_KEY);
+  // The page says it signed out at once; the server hears of it a moment later.
+  const loggedOut = page.waitForResponse((response) =>
+    response.url().endsWith("/api/v1/auth/logout"),
+  );
   await signOut(page);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("You signed out.");
+  expect((await loggedOut).status()).toBe(204);
   // The server revoked the token, not just the browser forgetting it.
   const { error } = await apiClient(baseURL!).POST("/api/v1/auth/refresh", {
     body: { refresh_token: token! },

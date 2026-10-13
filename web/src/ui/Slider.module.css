@@ -1,0 +1,94 @@
+/* A 24px tall target around a thin track: the filled part in the text colour (the accent
+   while pointed at or focused), the thumb only then (always on touch screens). */
+.slider {
+  --track-fill: var(--text);
+  --track-rest: rgb(255 255 255 / 0.2);
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.slider:not(:disabled):hover,
+.slider:focus-visible {
+  --track-fill: var(--accent-text);
+}
+
+.slider:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--track-fill) var(--fill),
+    var(--track-rest) var(--fill)
+  );
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  opacity: 0;
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track-rest);
+}
+
+.slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track-fill);
+}
+
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  opacity: 0;
+}
+
+.slider:not(:disabled):hover::-webkit-slider-thumb,
+.slider:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+
+.slider:not(:disabled):hover::-moz-range-thumb,
+.slider:focus-visible::-moz-range-thumb {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .slider:not(:disabled)::-webkit-slider-thumb {
+    opacity: 1;
+  }
+
+  .slider:not(:disabled)::-moz-range-thumb {
+    opacity: 1;
+  }
+}

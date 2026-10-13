@@ -1,14 +1,17 @@
+import { useQueryClient } from "@tanstack/react-query";
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import { useI18n } from "../i18n";
+import { PlayButton } from "../player/PlayButton";
 import { coverTint } from "../theme/theme";
 import { Cover } from "./Cover";
-import type { Album } from "./queries";
+import { albumQuery, type Album } from "./queries";
 import styles from "./NewAlbum.module.css";
 
 /** A new album in the carousel at the top of the home page: a big cover on its colours. */
 export function NewAlbum({ album }: { album: Album }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const tint = album.cover_palette ? coverTint(album.cover_palette) : null;
   return (
     <article
@@ -25,6 +28,13 @@ export function NewAlbum({ album }: { album: Album }) {
           {album.artist.name}
         </Link>
         <span className={styles.meta}>{[album.year, album.genre].filter(Boolean).join(" · ")}</span>
+        <PlayButton
+          source={{ type: "album", id: album.id }}
+          name={album.title}
+          tracks={async () => (await queryClient.fetchQuery(albumQuery(album.id))).tracks}
+          size="md"
+          className={styles.play}
+        />
       </div>
     </article>
   );

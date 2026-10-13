@@ -30,7 +30,8 @@ td {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
-.row:hover td {
+.row:hover td,
+.row:focus-within td {
   background: var(--hover);
 }
 
@@ -49,6 +50,128 @@ tbody:first-of-type .disc th {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* The number, the playing bars and the play button take the same place: the button shows
+   on the row under the pointer or in focus. */
+.slot {
+  display: grid;
+  justify-items: end;
+  align-items: center;
+}
+
+.slot > * {
+  grid-area: 1 / 1;
+}
+
+.play {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-right: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.play svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.play:hover {
+  background: var(--hover);
+}
+
+.row:hover .play,
+.row:focus-within .play {
+  opacity: 1;
+}
+
+.row:hover .index,
+.row:hover .bars,
+.row:focus-within .index,
+.row:focus-within .bars {
+  visibility: hidden;
+}
+
+.row[aria-current] .title,
+.row[aria-current] .index {
+  color: var(--accent-text);
+}
+
+/* Bouncing bars by the playing track. */
+.bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.bars i {
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent-text);
+  transform-origin: bottom;
+  animation: bounce 0.8s ease-in-out infinite alternate;
+}
+
+.bars i:nth-child(2) {
+  animation-delay: -0.5s;
+}
+
+.bars i:nth-child(3) {
+  animation-delay: -0.25s;
+}
+
+@keyframes bounce {
+  from {
+    transform: scaleY(0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bars i {
+    animation: none;
+  }
+
+  .bars i:nth-child(2) {
+    transform: scaleY(0.5);
+  }
+
+  .bars i:nth-child(3) {
+    transform: scaleY(0.75);
+  }
+}
+
+.actions {
+  width: 48px;
+  padding-left: 0;
+  text-align: right;
+}
+
+/* The menu button shows on its row; always on touch screens. */
+.more {
+  opacity: 0;
+}
+
+.row:hover .more,
+.row:focus-within .more,
+.more[aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .more {
+    opacity: 1;
+  }
 }
 
 .duration {
@@ -139,5 +262,9 @@ tbody:first-of-type .disc th {
 
   .duration {
     width: 60px;
+  }
+
+  .actions {
+    width: 40px;
   }
 }

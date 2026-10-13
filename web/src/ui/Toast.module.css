@@ -1,0 +1,43 @@
+.region {
+  position: fixed;
+  left: 50%;
+  bottom: 124px;
+  z-index: 50;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 18px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: var(--popup);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: center;
+  animation: rise 0.2s ease-out;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+/* Phones: above the mini player and the tabs. */
+@media (max-width: 899px) {
+  .region {
+    bottom: calc(148px + env(safe-area-inset-bottom));
+  }
+}

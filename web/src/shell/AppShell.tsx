@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Outlet, useLocation } from "react-router";
 import { useMe } from "../account/me";
 import { useI18n } from "../i18n";
+import { useFailureNotice, useSpaceToPlay } from "../player/hooks";
 import { Backdrop } from "../theme/Backdrop";
+import { Toast } from "../ui/Toast";
 import styles from "./AppShell.module.css";
+import { FullPlayer } from "./FullPlayer";
+import { MiniPlayer } from "./MiniPlayer";
 import { MobileTabs } from "./MobileTabs";
 import { NowPlaying } from "./NowPlaying";
 import { PageTintContext } from "./pageTint";
-import { PlayerBar } from "./PlayerBar";
+import { PlayerBar, QUEUE_TOGGLE } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -20,6 +24,16 @@ export function AppShell() {
   const { pathname } = useLocation();
   const visited = useRef(pathname);
   const [tint, setTint] = useState<string | null>(null);
+  // The queue over the page (narrower windows) and the phone's full player.
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const closeQueue = useCallback(() => {
+    setQueueOpen(false);
+    document.getElementById(QUEUE_TOGGLE)?.focus();
+  }, []);
+  const closePlayer = useCallback(() => setPlayerOpen(false), []);
+  useSpaceToPlay();
+  useFailureNotice();
 
   // A new page starts at its top, and keyboard and screen reader users land on it, as on a
   // full page load (not on the first one: focus stays where the browser puts it).
@@ -51,9 +65,12 @@ export function AppShell() {
           </PageTintContext>
         </main>
       </div>
-      <NowPlaying />
-      <PlayerBar />
+      <NowPlaying open={queueOpen} onClose={closeQueue} />
+      <PlayerBar queueOpen={queueOpen} onToggleQueue={() => setQueueOpen(!queueOpen)} />
+      <MiniPlayer onOpen={() => setPlayerOpen(true)} />
       <MobileTabs />
+      <FullPlayer open={playerOpen} onClose={closePlayer} />
+      <Toast />
     </div>
   );
 }

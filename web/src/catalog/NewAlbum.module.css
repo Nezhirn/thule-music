@@ -90,6 +90,14 @@
   font-size: var(--text-sm);
 }
 
+/* Over the card's link. */
+.play {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  margin-top: 10px;
+}
+
 @media (max-width: 899px) {
   .card {
     grid-template-columns: 112px minmax(0, 1fr);

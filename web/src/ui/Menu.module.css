@@ -31,6 +31,11 @@
   box-shadow: var(--shadow);
 }
 
+.popup[data-up] {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .header {
   padding: 10px 12px 12px;
   margin-bottom: 6px;

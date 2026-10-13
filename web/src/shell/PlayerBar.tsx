@@ -1,54 +1,60 @@
-import { Music, Play, Repeat, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react";
+import { ListMusic, Music } from "lucide-react";
+import { Cover } from "../catalog/Cover";
 import { useI18n } from "../i18n";
+import { selectTrack, usePlayer } from "../player/context";
+import { Controls } from "../player/Controls";
+import { Progress } from "../player/Progress";
+import { TrackInfo } from "../player/TrackInfo";
+import { Volume } from "../player/Volume";
 import { IconButton } from "../ui/IconButton";
 import styles from "./PlayerBar.module.css";
 
-/** The player along the bottom. The controls come alive with the player (stage 4). */
-export function PlayerBar() {
+/** The id of the button that opens the queue over the page (narrower windows). */
+export const QUEUE_TOGGLE = "queue-toggle";
+
+/** The player along the bottom (not on phones: they have the mini player). */
+export function PlayerBar({
+  queueOpen,
+  onToggleQueue,
+}: {
+  queueOpen: boolean;
+  onToggleQueue(): void;
+}) {
   const { t } = useI18n();
+  const track = usePlayer(selectTrack);
   return (
     <section className={`glass ${styles.bar}`} aria-label={t.player.label}>
       <div className={styles.track}>
-        <span className={styles.cover}>
-          <Music />
-        </span>
-        <span className={styles.nothing}>{t.player.nothingPlaying}</span>
+        {track ? (
+          <>
+            <Cover id={track.album.cover_id} sizes="56px" className={styles.cover} />
+            <TrackInfo track={track} />
+          </>
+        ) : (
+          <>
+            <span className={`${styles.cover} ${styles.empty}`}>
+              <Music />
+            </span>
+            <span className={styles.nothing}>{t.player.nothingPlaying}</span>
+          </>
+        )}
       </div>
       <div className={styles.center}>
-        <div className={styles.controls}>
-          <IconButton icon={Shuffle} label={t.player.shuffle} size="sm" disabled />
-          <IconButton icon={SkipBack} label={t.player.previous} disabled />
-          <IconButton icon={Play} label={t.player.play} size="lg" primary disabled />
-          <IconButton icon={SkipForward} label={t.player.next} disabled />
-          <IconButton icon={Repeat} label={t.player.repeat} size="sm" disabled />
-        </div>
-        <div className={styles.progress}>
-          <span className={styles.time}>0:00</span>
-          <input
-            type="range"
-            className={styles.range}
-            aria-label={t.player.position}
-            min={0}
-            max={1}
-            value={0}
-            disabled
-            readOnly
-          />
-          <span className={styles.time}>0:00</span>
-        </div>
+        <Controls />
+        <Progress />
       </div>
-      <div className={styles.volume}>
-        <Volume2 className={styles.volumeIcon} />
-        <input
-          type="range"
-          className={styles.range}
-          aria-label={t.player.volume}
-          min={0}
-          max={1}
-          value={1}
-          disabled
-          readOnly
+      <div className={styles.side}>
+        <IconButton
+          id={QUEUE_TOGGLE}
+          icon={ListMusic}
+          label={t.player.queue}
+          size="sm"
+          aria-expanded={queueOpen}
+          aria-controls="now-playing"
+          className={styles.queue}
+          onClick={onToggleQueue}
         />
+        <Volume />
       </div>
     </section>
   );

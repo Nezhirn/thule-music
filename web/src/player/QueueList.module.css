@@ -1,0 +1,89 @@
+.list {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0 -8px;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--hover);
+}
+
+.jump {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jump:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
+
+.cover {
+  flex: none;
+  width: 40px;
+  border-radius: 6px;
+}
+
+.titles {
+  display: grid;
+  min-width: 0;
+}
+
+.title,
+.artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.artist {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* Shown on the row it belongs to; always on touch screens. */
+.remove {
+  opacity: 0;
+}
+
+.row:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .remove {
+    opacity: 1;
+  }
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

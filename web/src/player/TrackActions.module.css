@@ -1,0 +1,23 @@
+.trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+}

@@ -1,0 +1,7 @@
+.play svg {
+  fill: currentColor;
+}
+
+.play[aria-busy="true"] {
+  cursor: progress;
+}

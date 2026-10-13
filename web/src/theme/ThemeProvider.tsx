@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { preferencesQuery } from "../auth/queries";
 import { useSession } from "../auth/session";
+import { selectTrack, usePlayer } from "../player/context";
 import { ThemeContext, type CoverPalette, type Theme } from "./context";
 import { accentTokens, ambientColors, DEFAULT_ACCENT, SIGN_IN_AMBIENT } from "./theme";
 
@@ -11,13 +12,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const { status } = useSession();
   const signedIn = status === "authenticated";
   const preferences = useQuery({ ...preferencesQuery, enabled: signedIn }).data;
+  const playing = usePlayer((state) => selectTrack(state)?.album.cover_palette ?? null);
   const [coverPreview, previewCover] = useState<CoverPalette | null>(null);
   const [accentPreview, previewAccent] = useState<string | null>(null);
 
   const accent = accentPreview ?? preferences?.accent_color ?? DEFAULT_ACCENT;
   const blur = preferences?.blur ?? true;
-  // Stage 4 adds the cover of the playing track here.
-  const palette = (preferences?.adaptive_color ?? true) ? coverPreview : null;
+  // The cover being tried on in the settings, or else the playing track's.
+  const palette = (preferences?.adaptive_color ?? true) ? (coverPreview ?? playing) : null;
 
   useLayoutEffect(() => {
     const root = document.documentElement;

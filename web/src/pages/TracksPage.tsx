@@ -39,6 +39,7 @@ export function TracksPage() {
         <TrackTable
           tracks={tracks.data.pages.flatMap((page) => page.items)}
           label={t.nav.tracks}
+          source={{ type: "tracks", id: sort }}
           withAlbum
         />
       )}

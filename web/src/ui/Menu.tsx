@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -21,17 +22,28 @@ interface Props {
   trigger: ReactNode;
   /** Shown above the items, e.g. who is signed in. */
   header?: ReactNode;
+  /** Replaces the button's own look. */
+  triggerClassName?: string;
   children: ReactNode;
 }
 
 /** A button opening a list of actions, with the keyboard behaviour of the WAI-ARIA menu
  * button: arrows move between the items, Escape closes and returns to the button. */
-export function Menu({ label, trigger, header, children }: Props) {
+export function Menu({ label, trigger, header, triggerClassName, children }: Props) {
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   // Which item to focus once open: the first, or the last (opened with the up arrow).
   const [open, setOpen] = useState<"first" | "last" | null>(null);
+
+  // Opens upwards where there is no room below (a button near the bottom of the window).
+  useLayoutEffect(() => {
+    if (!open || !popup.current || !button.current) return;
+    const { top, bottom } = button.current.getBoundingClientRect();
+    const below = window.innerHeight - bottom;
+    popup.current.toggleAttribute("data-up", below < popup.current.offsetHeight + 8 && top > below);
+  }, [open]);
 
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   const close = (refocus: boolean) => {
@@ -86,14 +98,14 @@ export function Menu({ label, trigger, header, children }: Props) {
         aria-haspopup="menu"
         aria-expanded={Boolean(open)}
         aria-controls={open ? id : undefined}
-        className={styles.trigger}
+        className={triggerClassName ?? styles.trigger}
         onClick={() => setOpen(open ? null : "first")}
         onKeyDown={onButtonKey}
       >
         {trigger}
       </button>
       {open && (
-        <div className={styles.popup}>
+        <div ref={popup} className={styles.popup}>
           {header && <div className={styles.header}>{header}</div>}
           <div ref={menu} id={id} role="menu" aria-label={label} onKeyDown={onMenuKey}>
             <CloseContext value={() => close(false)}>{children}</CloseContext>

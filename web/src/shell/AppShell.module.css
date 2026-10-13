@@ -73,7 +73,8 @@
   outline: none;
 }
 
-/* Without the right column below this width; the player will open it as an overlay. */
+/* Without the right column below this width; the player's queue button opens it over the
+   page. */
 @media (max-width: 1279px) {
   .shell {
     grid-template-columns: 232px minmax(0, 1fr);
@@ -83,14 +84,15 @@
   }
 }
 
-/* Phones: the page fills the screen, the sections are tabs at the bottom. The mini player
-   above them arrives with playback. */
+/* Phones: the page fills the screen, the sections are tabs at the bottom, the mini player
+   above them while something is in the player. */
 @media (max-width: 899px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto auto;
     grid-template-areas:
       "main"
+      "mini"
       "tabs";
     gap: 0;
     padding: 0;
