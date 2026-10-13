@@ -83,7 +83,8 @@ class Track(UUIDPk, Base):
     album_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("albums.id", ondelete="CASCADE"), index=True
     )
-    # Track artist; may differ from the album artist on compilations.
+    # Main track artist; may differ from the album artist on compilations. Everyone credited,
+    # this one included, is in `credits`.
     artist_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("artists.id", ondelete="CASCADE"), index=True
     )
@@ -103,6 +104,9 @@ class Track(UUIDPk, Base):
 
     album: Mapped[Album] = relationship(lazy="raise")
     artist: Mapped[Artist] = relationship(lazy="raise")
+    credits: Mapped[list["TrackArtist"]] = relationship(
+        lazy="raise", order_by="TrackArtist.position", viewonly=True
+    )
 
     __table_args__ = (
         Index(
@@ -112,6 +116,23 @@ class Track(UUIDPk, Base):
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
     )
+
+
+class TrackArtist(Base):
+    """An artist credited on a track: the main one at position 0 (also Track.artist_id), then
+    the featured ones ("feat.") in tag order."""
+
+    __tablename__ = "track_artists"
+
+    track_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(primary_key=True)
+    artist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("artists.id", ondelete="CASCADE"), index=True
+    )
+
+    artist: Mapped[Artist] = relationship(lazy="raise")
 
 
 class Variant(enum.StrEnum):

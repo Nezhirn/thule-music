@@ -23,6 +23,9 @@ MIN_LISTEN_MS = 30_000
 
 
 class HomeOut(ApiModel):
+    # Newest in the library.
+    recently_added: list[AlbumOut]
+    # Newest by release year.
     new_releases: list[AlbumOut]
     recently_played: list[AlbumOut]
     for_you: list[AlbumOut]
@@ -122,13 +125,22 @@ async def get_home(
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=50)] = 12,
 ) -> HomeOut:
-    new_ids = list(
+    added_ids = list(
         await session.scalars(
             select(Album.id).order_by(Album.added_at.desc(), Album.id).limit(limit)
         )
     )
+    released_ids = list(
+        await session.scalars(
+            select(Album.id)
+            .where(Album.year.is_not(None))
+            .order_by(Album.year.desc(), Album.added_at.desc(), Album.id)
+            .limit(limit)
+        )
+    )
     return HomeOut(
-        new_releases=await _albums_by_ids(session, user.id, new_ids),
+        recently_added=await _albums_by_ids(session, user.id, added_ids),
+        new_releases=await _albums_by_ids(session, user.id, released_ids),
         recently_played=await _albums_by_ids(
             session, user.id, await _recently_played(session, user.id, limit)
         ),

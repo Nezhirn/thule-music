@@ -10,12 +10,13 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
 
 from app.library.covers import palette_from_color
-from app.library.models import Album, Artist, Cover, Track
+from app.library.models import Album, Artist, Cover, Track, TrackArtist
 from app.me.models import AlbumLike, ArtistLike, TrackLike
 from app.schemas import AlbumOut, AlbumRef, ArtistOut, ArtistRef, CoverPalette, TrackOut
 
 TRACK_LOAD: list[LoaderOption] = [
     selectinload(Track.artist),
+    selectinload(Track.credits).selectinload(TrackArtist.artist),
     selectinload(Track.album).selectinload(Album.cover),
     selectinload(Track.album).selectinload(Album.artist),
 ]
@@ -81,6 +82,8 @@ def track_out(track: Track, liked: set[uuid.UUID] | None = None) -> TrackOut:
         codec=track.codec,
         bitrate=track.bitrate,
         artist=ArtistRef(id=track.artist.id, name=track.artist.name),
+        artists=[ArtistRef(id=c.artist.id, name=c.artist.name) for c in track.credits]
+        or [ArtistRef(id=track.artist.id, name=track.artist.name)],
         album=album_ref(track.album),
         album_artist=ArtistRef(id=track.album.artist.id, name=track.album.artist.name),
         liked=liked is not None and track.id in liked,

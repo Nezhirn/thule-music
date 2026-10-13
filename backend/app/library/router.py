@@ -16,7 +16,7 @@ from app.deps import AdminUser, CurrentUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
 from app.jobs.models import Job, JobStatus
 from app.jobs.queue import enqueue
-from app.library.models import Album, Artist, Track
+from app.library.models import Album, Artist, Track, TrackArtist
 from app.library.queries import (
     ALBUM_LOAD,
     TRACK_ORDER,
@@ -27,7 +27,16 @@ from app.library.queries import (
     tracks_out,
 )
 from app.me.models import PlayEvent
-from app.schemas import AlbumDetail, AlbumOut, ApiModel, ArtistDetail, ArtistOut, Page, TrackOut
+from app.schemas import (
+    AlbumDetail,
+    AlbumOut,
+    ApiModel,
+    ArtistDetail,
+    ArtistOut,
+    GenreOut,
+    Page,
+    TrackOut,
+)
 
 router = APIRouter(tags=["library"])
 admin_router = APIRouter(prefix="/library", tags=["admin"])
@@ -40,6 +49,14 @@ class AlbumSort(enum.StrEnum):
     by_added = "added"
     by_title = "title"
     by_year = "year"
+    by_artist = "artist"
+
+
+class TrackSort(enum.StrEnum):
+    by_added = "added"
+    by_title = "title"
+    by_artist = "artist"
+    by_album = "album"
 
 
 @router.get("/artists", response_model=Page[ArtistOut])
@@ -67,12 +84,25 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
     artist = await session.get(Artist, artist_id)
     if artist is None:
         raise ApiError(ErrorCode.artist_not_found)
+    newest_first = (Album.year.desc().nulls_last(), Album.title_key)
     albums = (
         await session.scalars(
             select(Album)
             .where(Album.artist_id == artist_id)
             .options(*ALBUM_LOAD)
-            .order_by(Album.year.desc().nulls_last(), Album.title_key)
+            .order_by(*newest_first)
+        )
+    ).all()
+    credited = select(TrackArtist.track_id).where(TrackArtist.artist_id == artist_id)
+    appears_on = (
+        await session.scalars(
+            select(Album)
+            .where(
+                Album.artist_id != artist_id,
+                Album.id.in_(select(Track.album_id).where(Track.id.in_(credited))),
+            )
+            .options(*ALBUM_LOAD)
+            .order_by(*newest_first)
         )
     ).all()
 
@@ -83,7 +113,7 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
         await session.scalars(
             track_select()
             .outerjoin(plays, plays.c.track_id == Track.id)
-            .where(Track.artist_id == artist_id)
+            .where(Track.id.in_(credited))
             .order_by(func.coalesce(plays.c.n, 0).desc(), *TRACK_ORDER)
             .limit(10)
         )
@@ -93,6 +123,7 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
     return ArtistDetail(
         **base.model_dump(),
         albums=await albums_out(session, user.id, albums),
+        appears_on=await albums_out(session, user.id, appears_on),
         top_tracks=await tracks_out(session, user.id, top),
     )
 
@@ -112,10 +143,18 @@ async def list_albums(
         query = query.where(Album.title.ilike(contains(q), escape="\\"))
     if genre:
         query = query.where(func.lower(Album.genre) == genre.casefold())
+    if sort == AlbumSort.by_artist:
+        query = query.join(Artist, Artist.id == Album.artist_id)
     order = {
         AlbumSort.by_added: (Album.added_at.desc(), Album.id),
         AlbumSort.by_title: (Album.title_key, Album.id),
-        AlbumSort.by_year: (Album.year.desc().nulls_last(), Album.title_key),
+        AlbumSort.by_year: (Album.year.desc().nulls_last(), Album.title_key, Album.id),
+        AlbumSort.by_artist: (
+            Artist.name_key,
+            Album.year.nulls_last(),
+            Album.title_key,
+            Album.id,
+        ),
     }[sort]
     total = await session.scalar(select(func.count()).select_from(query.subquery())) or 0
     albums = (
@@ -151,13 +190,22 @@ async def list_tracks(
     user: CurrentUser,
     limit: Limit = 50,
     offset: Offset = 0,
+    sort: TrackSort = TrackSort.by_added,
 ) -> Page[TrackOut]:
+    query = track_select()
+    if sort == TrackSort.by_artist:
+        query = query.join(Artist, Artist.id == Track.artist_id)
+    if sort in (TrackSort.by_artist, TrackSort.by_album):
+        query = query.join(Album, Album.id == Track.album_id)
+    in_album = (*TRACK_ORDER, Track.id)
+    order = {
+        TrackSort.by_added: (Track.added_at.desc(), Track.id),
+        TrackSort.by_title: (func.lower(Track.title), Track.id),
+        TrackSort.by_artist: (Artist.name_key, Album.year.nulls_last(), Album.title_key, *in_album),
+        TrackSort.by_album: (Album.title_key, Album.id, *in_album),
+    }[sort]
     total = await session.scalar(select(func.count()).select_from(Track)) or 0
-    tracks = (
-        await session.scalars(
-            track_select().order_by(Track.added_at.desc(), Track.id).limit(limit).offset(offset)
-        )
-    ).all()
+    tracks = (await session.scalars(query.order_by(*order).limit(limit).offset(offset))).all()
     return Page(
         items=await tracks_out(session, user.id, tracks), total=total, limit=limit, offset=offset
     )
@@ -170,6 +218,19 @@ async def get_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser)
         raise ApiError(ErrorCode.track_not_found)
     (out,) = await tracks_out(session, user.id, [track])
     return out
+
+
+@router.get("/genres", response_model=list[GenreOut])
+async def list_genres(session: SessionDep, _: CurrentUser) -> list[GenreOut]:
+    """Album genres, most albums first. Spellings differing only in case count as one."""
+    key = func.lower(Album.genre)
+    rows = await session.execute(
+        select(func.min(Album.genre), func.count())
+        .where(Album.genre.is_not(None))
+        .group_by(key)
+        .order_by(func.count().desc(), key)
+    )
+    return [GenreOut(name=name, album_count=count) for name, count in rows]
 
 
 # --- admin -----------------------------------------------------------------------------

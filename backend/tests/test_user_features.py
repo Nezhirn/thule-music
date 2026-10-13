@@ -6,10 +6,11 @@ import pytest
 
 @pytest.fixture
 async def catalog(client, admin, make_audio, run_jobs) -> dict[str, dict]:
-    make_audio("k/1.mp3", title="A Line in the Dust", artist="Katatonia", album="Night", track=1)
-    make_audio("k/2.mp3", title="Lethean", artist="Katatonia", album="Night", track=2)
-    make_audio("c/1.mp3", title="Dissolution", artist="The Cure", album="Faith", track=1)
-    make_audio("a/1.mp3", title="Solitude", artist="Mare Cognitum", album="Solar", track=1)
+    night = {"artist": "Katatonia", "album": "Night", "year": 2020}
+    make_audio("k/1.mp3", title="A Line in the Dust", track=1, **night)
+    make_audio("k/2.mp3", title="Lethean", track=2, **night)
+    make_audio("c/1.mp3", title="Dissolution", artist="The Cure", album="Faith", year=1981)
+    make_audio("a/1.mp3", title="Solitude", artist="Mare Cognitum", album="Solar", year=2017)
     await client.post("/library/scan", headers=admin)
     await run_jobs()
     tracks = (await client.get("/tracks", headers=admin)).json()["items"]
@@ -119,7 +120,7 @@ async def test_saved_albums_and_followed_artists(client, admin, user, catalog):
     }
     assert (await client.get(f"/artists/{artist}", headers=user)).json()["liked"] is True
     home = (await client.get("/home", headers=user)).json()
-    assert any(a["liked"] for a in home["new_releases"])
+    assert any(a["liked"] for a in home["recently_added"])
     found = (await client.get("/search?q=katatonia", headers=user)).json()
     assert found["artists"][0]["liked"] is True
 
@@ -144,7 +145,8 @@ async def test_plays_recent_and_home(client, user, catalog):
     assert [r["track"]["title"] for r in recent] == ["Dissolution", "Lethean"]
 
     home = (await client.get("/home", headers=user)).json()
-    assert {a["title"] for a in home["new_releases"]} == {"Night", "Faith", "Solar"}
+    assert {a["title"] for a in home["recently_added"]} == {"Night", "Faith", "Solar"}
+    assert [a["title"] for a in home["new_releases"]] == ["Night", "Solar", "Faith"]
     assert [a["title"] for a in home["recently_played"]] == ["Faith", "Night"]
     # Played albums are excluded from "for you"; the unplayed one fills in.
     assert [a["title"] for a in home["for_you"]] == ["Solar"]

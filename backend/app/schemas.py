@@ -55,7 +55,10 @@ class TrackOut(ApiModel):
     disc_no: int | None
     codec: str
     bitrate: int | None
+    # The main artist.
     artist: ArtistRef
+    # Everyone credited ("A feat. B"), the main artist first.
+    artists: list[ArtistRef]
     album: AlbumRef
     album_artist: ArtistRef
     liked: bool = False
@@ -78,6 +81,11 @@ class AlbumDetail(AlbumOut):
     tracks: list[TrackOut]
 
 
+class GenreOut(ApiModel):
+    name: str
+    album_count: int
+
+
 class ArtistOut(ApiModel):
     id: uuid.UUID
     name: str
@@ -89,4 +97,6 @@ class ArtistOut(ApiModel):
 
 class ArtistDetail(ArtistOut):
     albums: list[AlbumOut]
+    # Other artists' albums with tracks crediting this one: compilations, features.
+    appears_on: list[AlbumOut]
     top_tracks: list[TrackOut]

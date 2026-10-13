@@ -320,6 +320,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/genres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Genres
+         * @description Album genres, most albums first. Spellings differing only in case count as one.
+         */
+        get: operations["list_genres"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/scan": {
         parameters: {
             query?: never;
@@ -878,7 +898,7 @@ export interface components {
          * AlbumSort
          * @enum {string}
          */
-        AlbumSort: "added" | "title" | "year";
+        AlbumSort: "added" | "title" | "year" | "artist";
         /** ArtistDetail */
         ArtistDetail: {
             /**
@@ -900,6 +920,8 @@ export interface components {
             liked: boolean;
             /** Albums */
             albums: components["schemas"]["AlbumOut"][];
+            /** Appears On */
+            appears_on: components["schemas"]["AlbumOut"][];
             /** Top Tracks */
             top_tracks: components["schemas"]["TrackOut"][];
         };
@@ -977,8 +999,17 @@ export interface components {
             /** Detail */
             detail: string | components["schemas"]["ValidationIssue"][];
         };
+        /** GenreOut */
+        GenreOut: {
+            /** Name */
+            name: string;
+            /** Album Count */
+            album_count: number;
+        };
         /** HomeOut */
         HomeOut: {
+            /** Recently Added */
+            recently_added: components["schemas"]["AlbumOut"][];
             /** New Releases */
             new_releases: components["schemas"]["AlbumOut"][];
             /** Recently Played */
@@ -1357,6 +1388,8 @@ export interface components {
             /** Bitrate */
             bitrate: number | null;
             artist: components["schemas"]["ArtistRef"];
+            /** Artists */
+            artists: components["schemas"]["ArtistRef"][];
             album: components["schemas"]["AlbumRef"];
             album_artist: components["schemas"]["ArtistRef"];
             /**
@@ -1365,6 +1398,11 @@ export interface components {
              */
             liked: boolean;
         };
+        /**
+         * TrackSort
+         * @enum {string}
+         */
+        TrackSort: "added" | "title" | "artist" | "album";
         /** UploadResult */
         UploadResult: {
             /** Path */
@@ -1987,6 +2025,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                sort?: components["schemas"]["TrackSort"];
             };
             header?: never;
             path?: never;
@@ -2032,6 +2071,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    list_genres: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreOut"][];
                 };
             };
             /** @description Error */

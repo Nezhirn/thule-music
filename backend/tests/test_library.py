@@ -1,6 +1,7 @@
 import pytest
 
 from app.library.importer import _walk, resolve_in_library
+from tests.conftest import png_bytes
 
 
 async def scan(client, admin, run_jobs) -> None:
@@ -266,3 +267,112 @@ def test_scan_follows_symlinks_but_not_cycles(tmp_path):
     (tmp_path / "elsewhere" / "2.flac").touch()
     (root / "B").symlink_to(tmp_path / "elsewhere")  # regular linked folder
     assert set(_walk(root)[0]) == {"A/1.mp3", "B/2.flac"}
+
+
+async def test_featured_artists_are_credited_not_merged_into_names(
+    client, admin, make_audio, run_jobs
+):
+    duet = make_audio(
+        "СВ/01.flac",
+        title="Тихие города",
+        artist="Северный Ветер feat. Анна Лунина",
+        album="Тихие города",
+        year=2021,
+    )
+    solo = make_audio(
+        "VA/01.flac",
+        title="Тёплый ветер",
+        artist="Анна Лунина",
+        album="Лето 2024",
+        album_artist="Various Artists",
+        year=2024,
+    )
+    await scan(client, admin, run_jobs)
+
+    artists = {a["name"]: a for a in (await client.get("/artists", headers=admin)).json()["items"]}
+    assert set(artists) == {"Анна Лунина", "Северный Ветер", "Various Artists"}
+    tracks = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert tracks["Тихие города"]["artist"]["name"] == "Северный Ветер"
+    assert [a["name"] for a in tracks["Тихие города"]["artists"]] == [
+        "Северный Ветер",
+        "Анна Лунина",
+    ]
+    assert tracks["Тихие города"]["album_artist"]["name"] == "Северный Ветер"
+
+    anna = (await client.get(f"/artists/{artists['Анна Лунина']['id']}", headers=admin)).json()
+    assert anna["albums"] == []
+    assert [a["title"] for a in anna["appears_on"]] == ["Лето 2024", "Тихие города"]
+    assert {t["title"] for t in anna["top_tracks"]} == {"Тихие города", "Тёплый ветер"}
+    wind = (await client.get(f"/artists/{artists['Северный Ветер']['id']}", headers=admin)).json()
+    assert [a["title"] for a in wind["albums"]] == ["Тихие города"]
+    assert wind["appears_on"] == []
+
+    # An artist only featured goes with the last track crediting them.
+    solo.unlink()
+    await scan(client, admin, run_jobs)
+    names = [a["name"] for a in (await client.get("/artists", headers=admin)).json()["items"]]
+    assert names == ["Анна Лунина", "Северный Ветер"]
+    duet.unlink()
+    await scan(client, admin, run_jobs)
+    assert (await client.get("/artists", headers=admin)).json()["items"] == []
+
+
+async def test_disc_folders_share_the_art_above_them(client, admin, make_audio, run_jobs, settings):
+    for disc in (1, 2):
+        make_audio(
+            f"Хор/Дорога/CD{disc}/01.flac",
+            title=f"Disc {disc}",
+            artist="Хор",
+            album="Дорога",
+            track=1,
+            disc=disc,
+        )
+    cover = settings.library_path / "Хор" / "Дорога" / "cover.png"
+    cover.write_bytes(png_bytes((200, 40, 40)))
+    await scan(client, admin, run_jobs)
+    (album,) = (await client.get("/albums", headers=admin)).json()["items"]
+    assert album["cover_palette"]["average"] == "#c82828"
+    await client.post("/library/scan", headers=admin)
+    assert await run_jobs() == 1  # the image is known to be the album's: nothing to redo
+
+    cover.write_bytes(png_bytes((10, 10, 90), size=80))
+    await scan(client, admin, run_jobs)
+    (album,) = (await client.get("/albums", headers=admin)).json()["items"]
+    assert album["cover_palette"]["average"] == "#0a0a5a"
+    tracks = (await client.get(f"/albums/{album['id']}", headers=admin)).json()["tracks"]
+    assert [(t["disc_no"], t["title"]) for t in tracks] == [(1, "Disc 1"), (2, "Disc 2")]
+
+
+async def test_overlong_names_are_clipped_not_refused(client, admin, make_audio, run_jobs):
+    make_audio("a/1.mp3", title="T", artist="A", album="Очень длинное название " * 40)
+    await scan(client, admin, run_jobs)
+    (album,) = (await client.get("/albums", headers=admin)).json()["items"]
+    assert album["title"].startswith("Очень длинное") and len(album["title"]) <= 512
+
+
+async def test_genres_and_sorting(client, admin, make_audio, run_jobs):
+    make_audio("1.mp3", title="b", artist="Zeta", album="Alpha", year=2001, genre="Rock")
+    make_audio("2.mp3", title="C", artist="Alpha", album="Omega", year=2010, genre="rock")
+    make_audio("3.mp3", title="a", artist="Mid", album="Mid", year=2005, genre="Jazz")
+    make_audio("4.mp3", title="d", artist="Alpha", album="Beta", year=1999)
+    await scan(client, admin, run_jobs)
+
+    genres = (await client.get("/genres", headers=admin)).json()
+    assert [(g["name"].casefold(), g["album_count"]) for g in genres] == [("rock", 2), ("jazz", 1)]
+    rock = (await client.get("/albums?genre=ROCK&sort=title", headers=admin)).json()["items"]
+    assert [a["title"] for a in rock] == ["Alpha", "Omega"]
+
+    async def albums(sort: str) -> list[str]:
+        page = (await client.get(f"/albums?sort={sort}", headers=admin)).json()
+        return [a["title"] for a in page["items"]]
+
+    assert await albums("artist") == ["Beta", "Omega", "Mid", "Alpha"]
+    assert await albums("year") == ["Omega", "Mid", "Alpha", "Beta"]
+
+    async def tracks(sort: str) -> list[str]:
+        page = (await client.get(f"/tracks?sort={sort}", headers=admin)).json()
+        return [t["title"] for t in page["items"]]
+
+    assert await tracks("title") == ["a", "b", "C", "d"]
+    assert await tracks("artist") == ["d", "C", "a", "b"]
+    assert await tracks("album") == ["b", "d", "a", "C"]

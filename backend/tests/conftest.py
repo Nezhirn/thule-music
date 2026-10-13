@@ -153,7 +153,9 @@ def make_audio(settings: Settings) -> Callable[..., Path]:
         album: str,
         album_artist: str | None = None,
         track: int | None = None,
+        disc: int | None = None,
         year: int | None = None,
+        genre: str | None = None,
         duration: float = 2.0,
         cover: tuple[int, int, int] | None = None,
         lyrics: str | None = None,
@@ -165,8 +167,12 @@ def make_audio(settings: Settings) -> Callable[..., Path]:
             meta["album_artist"] = album_artist
         if track:
             meta["track"] = str(track)
+        if disc:
+            meta["disc"] = str(disc)
         if year:
             meta["date"] = str(year)
+        if genre:
+            meta["genre"] = genre
         if lyrics:
             meta["lyrics"] = lyrics
         cmd = [

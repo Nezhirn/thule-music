@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import posixpath
+import re
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -19,7 +20,7 @@ from app.config import AUDIO_EXTENSIONS
 from app.jobs.context import JobContext
 from app.jobs.queue import enqueue, enqueue_many
 from app.library.covers import is_image, store_cover
-from app.library.models import Album, Artist, Cover, Track, name_key
+from app.library.models import Album, Artist, Cover, Track, TrackArtist, name_key
 from app.library.queries import TRACK_ORDER
 from app.library.tags import embedded_picture, folder_cover, pick_folder_cover, read_tags
 
@@ -42,6 +43,19 @@ Stat = tuple[int, float]
 # artwork): a big album without any, such as "Unknown Album", would otherwise make each
 # import of one of its tracks read all of them.
 ART_TRACKS = 10
+
+
+# A disc folder of a multi-disc album ("CD1", "Disc 2 - Live", "Диск 1"): its art is often in
+# the album folder above it.
+_DISC_FOLDER = re.compile(r"(?:cd|disc|disk|диск)\s*\d+\b", re.IGNORECASE)
+
+
+def art_folders(folder: str) -> list[str]:
+    """Folders whose image may be the art of tracks in `folder` (library-relative), in order
+    of preference: the folder itself and, for a disc folder, the one above."""
+    if _DISC_FOLDER.match(posixpath.basename(folder)):
+        return [folder, posixpath.dirname(folder)]
+    return [folder]
 
 
 def _walk(root: Path) -> tuple[dict[str, Stat], dict[str, tuple[str, float]]]:
@@ -84,9 +98,9 @@ def _walk(root: Path) -> tuple[dict[str, Stat], dict[str, tuple[str, float]]]:
 
 def _album_picture(root: Path, paths: list[str]) -> tuple[bytes, str, float] | None:
     """An album's art, from its first tracks' paths in track order: the first folder image
-    (cover.jpg, folder.png, ...), else the first embedded artwork.
+    (cover.jpg, folder.png, ...; above a disc folder too), else the first embedded artwork.
     Returns (image bytes, the library path it came from, that file's mtime)."""
-    folders = list(dict.fromkeys(posixpath.dirname(rel) for rel in paths))
+    folders = list(dict.fromkeys(f for rel in paths for f in art_folders(posixpath.dirname(rel))))
     for folder in folders:
         image = folder_cover(resolve_in_library(root, folder or "."))
         if image is None:
@@ -163,6 +177,7 @@ async def delete_orphans(session: AsyncSession) -> None:
     await session.execute(
         delete(Artist).where(
             ~exists().where(Track.artist_id == Artist.id),
+            ~exists().where(TrackArtist.artist_id == Artist.id),
             ~exists().where(Album.artist_id == Artist.id),
         )
     )
@@ -325,7 +340,7 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
         for album_id, path in await session.execute(
             select(first.c.album_id, first.c.path).where(first.c.n <= ART_TRACKS)
         ):
-            folders[album_id].add(posixpath.dirname(path))
+            folders[album_id].update(art_folders(posixpath.dirname(path)))
         albums = [
             (row.id, row.cover_source, row.cover_mtime)
             for row in await session.execute(
@@ -396,11 +411,12 @@ async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
         tags = await asyncio.to_thread(read_tags, full)
 
         album_artist_id = await _upsert_artist(session, tags.album_artist)
-        track_artist_id = (
+        artist_ids = [
             album_artist_id
-            if name_key(tags.artist) == name_key(tags.album_artist)
-            else await _upsert_artist(session, tags.artist)
-        )
+            if name_key(name) == name_key(tags.album_artist)
+            else await _upsert_artist(session, name)
+            for name in tags.artists
+        ]
         album = await _upsert_album(session, tags.album, album_artist_id, tags.year, tags.genre)
 
         track = await session.scalar(select(Track).where(Track.path == rel))
@@ -410,7 +426,7 @@ async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
         previous_album_id = track.album_id
         track.title = tags.title
         track.album_id = album.id
-        track.artist_id = track_artist_id
+        track.artist_id = artist_ids[0]
         track.disc_no = tags.disc_no
         track.track_no = tags.track_no
         track.duration_ms = tags.duration_ms
@@ -420,6 +436,15 @@ async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
         track.bitrate = tags.bitrate
         track.sample_rate = tags.sample_rate
         await session.flush()
+        await session.execute(delete(TrackArtist).where(TrackArtist.track_id == track.id))
+        await session.execute(
+            insert(TrackArtist).values(
+                [
+                    {"track_id": track.id, "position": i, "artist_id": artist_id}
+                    for i, artist_id in enumerate(artist_ids)
+                ]
+            )
+        )
 
         # A re-import may move the track to another album; drop what that left empty.
         await delete_orphans(session)
