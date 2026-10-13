@@ -1,11 +1,23 @@
+import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import RefreshToken, Role, User
-from app.auth.schemas import Credentials, RefreshIn, RegisterIn, SetupStatus, TokenPair, UserOut
+from app.auth.schemas import (
+    Credentials,
+    PasswordChange,
+    PasswordReset,
+    ProfilePatch,
+    RefreshIn,
+    RegisterIn,
+    SetupStatus,
+    TokenPair,
+    UserOut,
+    UserPatch,
+)
 from app.auth.security import (
     create_access_token,
     hash_password,
@@ -17,12 +29,23 @@ from app.config import Settings
 from app.db import utcnow
 from app.deps import AdminUser, CurrentUser, OptionalUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
+from app.library.covers import store_cover
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 
+MAX_AVATAR_BYTES = 10 * 1024 * 1024
+
 # Serialises registrations, so two concurrent first sign-ups can't both become admin.
 _REGISTER_LOCK = 0x7468_756C  # "thul"
+
+
+async def _revoke_sessions(session: AsyncSession, user_id: uuid.UUID) -> None:
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    )
 
 
 async def _issue_tokens(session: AsyncSession, settings: Settings, user: User) -> TokenPair:
@@ -88,7 +111,8 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
 @router.post("/refresh", response_model=TokenPair)
 async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: SettingsDep) -> TokenPair:
     """Rotates the refresh token. Presenting an already-rotated token is treated as
-    theft: every session of that user is revoked."""
+    theft: every session of that user is revoked. A token revoked by logout or a password
+    change is just rejected."""
     token = await session.scalar(
         select(RefreshToken)
         .where(RefreshToken.token_hash == hash_refresh_token(body.refresh_token))
@@ -99,11 +123,9 @@ async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: Setting
 
     now = utcnow()
     if token.revoked_at is not None:
-        await session.execute(
-            update(RefreshToken)
-            .where(RefreshToken.user_id == token.user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=now)
-        )
+        if not token.rotated:
+            raise ApiError(ErrorCode.invalid_refresh_token)
+        await _revoke_sessions(session, token.user_id)
         await session.commit()
         raise ApiError(ErrorCode.refresh_token_reused)
     if token.expires_at <= now:
@@ -113,6 +135,7 @@ async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: Setting
     if user is None:
         raise ApiError(ErrorCode.invalid_refresh_token)
     token.revoked_at = now
+    token.rotated = True
     return await _issue_tokens(session, settings, user)
 
 
@@ -134,16 +157,88 @@ async def get_me(user: CurrentUser) -> User:
     return user
 
 
+@router.patch("/me", response_model=UserOut)
+async def update_me(body: ProfilePatch, session: SessionDep, user: CurrentUser) -> User:
+    if "display_name" in body.model_fields_set:
+        user.display_name = body.display_name
+    await session.commit()
+    return user
+
+
+@router.post("/me/password", response_model=TokenPair)
+async def change_password(
+    body: PasswordChange, session: SessionDep, settings: SettingsDep, user: CurrentUser
+) -> TokenPair:
+    """Signs out every other session (their refresh tokens are revoked; access tokens
+    expire within minutes) and returns fresh tokens for this one."""
+    if not verify_password(user.password_hash, body.current_password):
+        raise ApiError(ErrorCode.wrong_password)
+    user.password_hash = hash_password(body.new_password)
+    await _revoke_sessions(session, user.id)
+    return await _issue_tokens(session, settings, user)
+
+
+@router.put("/me/avatar", response_model=UserOut)
+async def upload_avatar(
+    file: UploadFile, session: SessionDep, settings: SettingsDep, user: CurrentUser
+) -> User:
+    """JPEG/PNG/WebP. Served like covers: `/covers/{avatar_id}?size=64|300|600`."""
+    data = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(data) > MAX_AVATAR_BYTES:
+        raise ApiError(ErrorCode.image_too_large)
+    picture = await store_cover(session, settings.covers_path, data)
+    if picture is None:
+        raise ApiError(ErrorCode.not_an_image)
+    user.avatar_id = picture.id
+    await session.commit()
+    return user
+
+
+@router.delete("/me/avatar", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_avatar(session: SessionDep, user: CurrentUser) -> None:
+    user.avatar_id = None
+    await session.commit()
+
+
+async def _user_by_name(session: AsyncSession, username: str) -> User:
+    user = await session.scalar(select(User).where(User.username == username))
+    if user is None:
+        raise ApiError(ErrorCode.user_not_found)
+    return user
+
+
 @users_router.get("", response_model=list[UserOut])
 async def list_users(session: SessionDep, _: AdminUser) -> list[User]:
     return list(await session.scalars(select(User).order_by(User.created_at)))
 
 
+@users_router.patch("/{username}", response_model=UserOut)
+async def update_user(
+    username: str, body: UserPatch, session: SessionDep, admin: AdminUser
+) -> User:
+    user = await _user_by_name(session, username)
+    if user.id == admin.id and body.role != user.role:
+        # Keeps the server from ending up without an admin.
+        raise ApiError(ErrorCode.cannot_change_own_role)
+    user.role = body.role
+    await session.commit()
+    return user
+
+
+@users_router.post("/{username}/password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(
+    username: str, body: PasswordReset, session: SessionDep, _: AdminUser
+) -> None:
+    """Sets a new password for a user and signs out all their sessions."""
+    user = await _user_by_name(session, username)
+    user.password_hash = hash_password(body.new_password)
+    await _revoke_sessions(session, user.id)
+    await session.commit()
+
+
 @users_router.delete("/{username}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(username: str, session: SessionDep, admin: AdminUser) -> None:
-    user = await session.scalar(select(User).where(User.username == username))
-    if user is None:
-        raise ApiError(ErrorCode.user_not_found)
+    user = await _user_by_name(session, username)
     if user.id == admin.id:
         raise ApiError(ErrorCode.cannot_delete_self)
     await session.delete(user)

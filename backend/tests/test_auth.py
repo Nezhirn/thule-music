@@ -85,6 +85,7 @@ async def test_refresh_rotation_and_reuse_detection(client):
     # Replaying the old token is treated as theft and kills every session...
     replay = await client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]})
     assert replay.status_code == 401
+    assert replay.json()["code"] == "refresh_token_reused"
     # ...including the freshly rotated one.
     after = await client.post("/auth/refresh", json={"refresh_token": rotated})
     assert after.status_code == 401
@@ -95,10 +96,17 @@ async def test_logout_revokes_refresh_token(client):
     tokens = (
         await client.post("/auth/login", json={"username": "admin", "password": "admin-password"})
     ).json()
+    other = (
+        await client.post("/auth/login", json={"username": "admin", "password": "admin-password"})
+    ).json()
     resp = await client.post("/auth/logout", json={"refresh_token": tokens["refresh_token"]})
     assert resp.status_code == 204
     again = await client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
     assert again.status_code == 401
+    assert again.json()["code"] == "invalid_refresh_token"
+    # A logged-out token is stale, not stolen: other sessions stay signed in.
+    still = await client.post("/auth/refresh", json={"refresh_token": other["refresh_token"]})
+    assert still.status_code == 200
 
 
 def test_secret_key_has_no_default(monkeypatch):

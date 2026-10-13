@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL.Image import DecompressionBombError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +42,7 @@ async def store_cover(session: AsyncSession, covers_path: Path, data: bytes) -> 
         return existing
     try:
         width, height, color = await asyncio.to_thread(_render, data, covers_path, source_hash)
-    except (UnidentifiedImageError, OSError):
+    except (UnidentifiedImageError, DecompressionBombError, OSError):
         return None
     cover = Cover(source_hash=source_hash, width=width, height=height, color=color)
     session.add(cover)

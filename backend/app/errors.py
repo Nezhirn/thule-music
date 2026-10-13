@@ -34,6 +34,10 @@ class ErrorCode(enum.StrEnum):
     refresh_token_expired = "refresh_token_expired"
     user_not_found = "user_not_found"
     cannot_delete_self = "cannot_delete_self"
+    cannot_change_own_role = "cannot_change_own_role"
+    wrong_password = "wrong_password"
+    not_an_image = "not_an_image"
+    image_too_large = "image_too_large"
     # library and media
     artist_not_found = "artist_not_found"
     album_not_found = "album_not_found"
@@ -64,6 +68,10 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.refresh_token_expired: (401, "Refresh token expired"),
     ErrorCode.user_not_found: (404, "User not found"),
     ErrorCode.cannot_delete_self: (400, "Cannot delete yourself"),
+    ErrorCode.cannot_change_own_role: (400, "Cannot change your own role"),
+    ErrorCode.wrong_password: (400, "Current password is wrong"),
+    ErrorCode.not_an_image: (415, "Not a supported image"),
+    ErrorCode.image_too_large: (413, "Image is too large"),
     ErrorCode.artist_not_found: (404, "Artist not found"),
     ErrorCode.album_not_found: (404, "Album not found"),
     ErrorCode.track_not_found: (404, "Track not found"),

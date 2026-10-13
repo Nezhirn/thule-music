@@ -11,7 +11,7 @@ Self-hosted музыкальный сервис (по типу Navidrome/Jellyfi
 | БД | PostgreSQL 17, SQLAlchemy 2.1 async, Alembic | — |
 | Фоновые задачи | Таблица `jobs` + `SELECT … FOR UPDATE SKIP LOCKED` | Без Redis/брокера; ретраи с экспоненциальной задержкой, дедупликация |
 | Стриминг | HTTP Range по файлам: оригинал + Opus 160k/96k (ffmpeg) | WebSocket не нужен для аудио по запросу, Icecast/Wowza — для live-радио. HLS — позже при необходимости |
-| Auth | Свой JWT: access (15 мин) + refresh с ротацией и детекцией повторного использования, argon2 | OIDC (Keycloak/Authentik) можно добавить отдельным способом входа |
+| Auth | Свой JWT: access (15 мин) + refresh с ротацией и детекцией повторного использования (кражей считается только повторно предъявленный уже обменянный токен), argon2 | OIDC (Keycloak/Authentik) можно добавить отдельным способом входа |
 | Поиск | `ILIKE` + `pg_trgm` (`word_similarity`) — устойчив к опечаткам | Elasticsearch избыточен для личной библиотеки |
 | Тексты | sidecar `.lrc`/`.txt` → тег в файле → LRCLIB; кешируются в БД | Genius/Musixmatch не отдают тексты бесплатно |
 
@@ -31,7 +31,7 @@ jobs/       очередь, воркер (`python -m app.jobs.worker`)
 
 ### Модель данных
 
-`users`, `refresh_tokens` · `artists` (уникальны по нормализованному имени) · `albums` (уникальны по артисту+названию) · `tracks` (идентичность — путь относительно библиотеки) · `track_files` (перекодированные варианты) · `covers` (дедупликация по sha256, средний цвет для тонировки UI) · `lyrics` · `playlists`, `playlist_items` · `track_likes`, `play_events` · `jobs`.
+`users`, `refresh_tokens` · `artists` (уникальны по нормализованному имени) · `albums` (уникальны по артисту+названию) · `tracks` (идентичность — путь относительно библиотеки) · `track_files` (перекодированные варианты) · `covers` (дедупликация по sha256, средний цвет для тонировки UI; здесь же хранятся аватары пользователей) · `lyrics` · `playlists`, `playlist_items` · `track_likes`, `play_events` · `jobs`.
 
 ### Конвейер импорта
 
