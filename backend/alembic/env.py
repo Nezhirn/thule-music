@@ -2,6 +2,7 @@ import asyncio
 from logging.config import fileConfig
 
 from sqlalchemy.engine import Connection
+from sqlalchemy.pool import NullPool
 
 from alembic import context
 from app.config import get_settings
@@ -13,6 +14,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+# Held while migrating: the API and the worker both migrate when they start, and on the first
+# start of all even CREATE SCHEMA IF NOT EXISTS fails when two run it at once. The second
+# process waits, then finds the schema up to date.
+MIGRATIONS_LOCK = 0x7468_6D67  # "thmg"
 
 
 def _schema() -> str:
@@ -39,8 +45,10 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     settings = get_settings()
     schema = _schema()
-    engine = make_engine(settings.database_url, schema)
+    # No pool: closing the connection releases the lock, whatever happens.
+    engine = make_engine(settings.database_url, schema, poolclass=NullPool)
     async with engine.connect() as connection:
+        await connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATIONS_LOCK})")
         await connection.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
         await connection.commit()
         await connection.run_sync(do_run_migrations)

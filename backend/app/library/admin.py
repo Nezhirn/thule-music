@@ -2,10 +2,12 @@
 
 import asyncio
 import enum
+import errno
 import hashlib
 import os
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, BinaryIO
@@ -342,6 +344,19 @@ def _safe_folder(folder: str) -> Path:
     return Path(*parts[:MAX_DEPTH])
 
 
+async def _write[**P, R](func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+    """Runs a write to the library in a thread. A library mounted read-only or owned by
+    another user, and a full disk, are told to the admin as such."""
+    try:
+        return await asyncio.to_thread(func, *args, **kwargs)
+    except OSError as exc:
+        if exc.errno == errno.ENOSPC:
+            raise ApiError(ErrorCode.disk_full) from exc
+        if isinstance(exc, PermissionError) or exc.errno == errno.EROFS:
+            raise ApiError(ErrorCode.library_not_writable) from exc
+        raise
+
+
 def _save_upload(src: BinaryIO, directory: Path, name: str) -> tuple[Path, str]:
     """Copies an upload to the first free name: "x.mp3", "x (1).mp3", ... Never overwrites:
     the name is claimed with an exclusive create, so concurrent uploads can't collide.
@@ -435,10 +450,10 @@ async def upload_files(
         if Path(name).suffix.casefold() not in UPLOAD_EXTENSIONS:
             raise ApiError(ErrorCode.not_an_audio_file, f"Can't upload {file.filename}")
     directory = settings.uploads_path / _safe_folder(folder)
-    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
+    await _write(directory.mkdir, parents=True, exist_ok=True)
     results = []
     for file, name in zip(files, names, strict=True):
-        dest, digest = await asyncio.to_thread(_save_upload, file.file, directory, name)
+        dest, digest = await _write(_save_upload, file.file, directory, name)
         existing = await _existing_copy(session, settings, dest, digest)
         if existing is not None:
             await asyncio.to_thread(dest.unlink)

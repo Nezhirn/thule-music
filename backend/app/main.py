@@ -19,8 +19,10 @@ from app.me.router import router as me_router
 from app.media.router import router as media_router
 from app.playlists.router import router as playlists_router
 from app.search.router import router as search_router
+from app.web import WebApp
 
-API_PREFIX = "/api/v1"
+API_ROOT = "/api"
+API_PREFIX = f"{API_ROOT}/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -40,6 +42,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         # operationId = the endpoint function's name ("list_albums"), for generated clients.
         generate_unique_id_function=lambda route: route.name,
+        # Under /api with the rest of the server: every other path is the web app's.
+        docs_url=f"{API_ROOT}/docs",
+        redoc_url=None,
+        openapi_url=f"{API_ROOT}/openapi.json",
     )
     app.state.settings = settings
     install_error_handlers(app)
@@ -72,6 +78,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api)
+    if settings.web_path is not None:
+        app.router.default = WebApp(settings.web_path)
     return app
 
 

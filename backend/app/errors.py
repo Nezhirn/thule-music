@@ -52,6 +52,8 @@ class ErrorCode(enum.StrEnum):
     invalid_cover_size = "invalid_cover_size"
     lyrics_not_found = "lyrics_not_found"
     job_not_found = "job_not_found"
+    library_not_writable = "library_not_writable"
+    disk_full = "disk_full"
     # playlists
     playlist_not_found = "playlist_not_found"
     playlist_item_not_found = "playlist_item_not_found"
@@ -88,6 +90,8 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.invalid_cover_size: (422, "Unsupported cover size"),
     ErrorCode.lyrics_not_found: (404, "No lyrics for this track"),
     ErrorCode.job_not_found: (404, "No such failed job"),
+    ErrorCode.library_not_writable: (503, "The server can't write to the music library folder"),
+    ErrorCode.disk_full: (507, "No space left on the server's disk"),
     ErrorCode.playlist_not_found: (404, "Playlist not found"),
     ErrorCode.playlist_item_not_found: (404, "Playlist item not found"),
     ErrorCode.unknown_tracks: (404, "Unknown tracks"),

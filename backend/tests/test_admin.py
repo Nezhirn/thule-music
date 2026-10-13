@@ -1,5 +1,8 @@
+import errno
+
 from app.db import utcnow
 from app.jobs.models import Job, JobStatus
+from app.library import admin as library_admin
 from tests.conftest import png_bytes
 
 
@@ -206,6 +209,25 @@ async def test_the_same_file_is_not_uploaded_twice(client, admin, make_audio, ru
         {"path": "uploads/fresh.mp3", "duplicate": True},
     ]
     assert [p.name for p in settings.uploads_path.iterdir()] == ["fresh.mp3"]
+
+
+async def test_a_library_the_server_cant_write_to(client, admin, monkeypatch):
+    def fail(error: OSError):
+        def save(*args, **kwargs):
+            raise error
+
+        return save
+
+    for error, status, code in [
+        (PermissionError(errno.EACCES, "Permission denied"), 503, "library_not_writable"),
+        (OSError(errno.EROFS, "Read-only file system"), 503, "library_not_writable"),
+        (OSError(errno.ENOSPC, "No space left on device"), 507, "disk_full"),
+    ]:
+        monkeypatch.setattr(library_admin, "_save_upload", fail(error))
+        resp = await client.post(
+            "/library/uploads", files=[("files", ("song.mp3", b"ID3"))], headers=admin
+        )
+        assert (resp.status_code, resp.json()["code"]) == (status, code)
 
 
 async def test_users_last_seen_and_signed_out_everywhere(client, admin, user):

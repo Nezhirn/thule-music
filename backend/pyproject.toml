@@ -18,6 +18,9 @@ dependencies = [
     "python-multipart>=0.0.20",
 ]
 
+[project.scripts]
+thule = "app.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

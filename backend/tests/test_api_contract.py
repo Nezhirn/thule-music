@@ -34,7 +34,7 @@ async def test_framework_errors_use_the_same_shape(client, admin):
 
 
 async def test_openapi_documents_the_error_shape(client):
-    spec = (await client.get("http://test/openapi.json")).json()
+    spec = (await client.get("http://test/api/openapi.json")).json()
     login = spec["paths"]["/api/v1/auth/login"]["post"]["responses"]
     assert login["4XX"]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorOut")
     assert "422" not in login
@@ -43,7 +43,7 @@ async def test_openapi_documents_the_error_shape(client):
 
 
 async def test_openapi_operation_ids_are_function_names(client):
-    spec = (await client.get("http://test/openapi.json")).json()
+    spec = (await client.get("http://test/api/openapi.json")).json()
     ids = [op["operationId"] for path in spec["paths"].values() for op in path.values()]
     assert len(ids) == len(set(ids))
     assert {"login", "list_albums", "get_stream_url", "stream_track", "health"} <= set(ids)
@@ -52,7 +52,7 @@ async def test_openapi_operation_ids_are_function_names(client):
 async def test_openapi_requires_response_fields_that_have_defaults(client):
     """Responses always include fields with defaults, requests may omit them; generated
     clients take optionality from `required`."""
-    schemas = (await client.get("http://test/openapi.json")).json()["components"]["schemas"]
+    schemas = (await client.get("http://test/api/openapi.json")).json()["components"]["schemas"]
     assert {"liked"} <= set(schemas["AlbumOut"]["required"])
     assert {"language", "blur", "stream_quality"} <= set(schemas["Preferences"]["required"])
     assert "role" not in schemas["RegisterIn"]["required"]

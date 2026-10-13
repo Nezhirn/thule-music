@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     library_path: Path = Path("./library")
     # Server-owned data: transcodes, covers, thumbnails.
     data_path: Path = Path("./data")
+    # The built web app (web/dist), served at "/" next to the API. Unset: the API only (in
+    # development the Vite dev server serves the app).
+    web_path: Path | None = None
 
     access_token_ttl_seconds: int = 15 * 60
     refresh_token_ttl_seconds: int = 30 * 24 * 3600
