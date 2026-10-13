@@ -1,8 +1,10 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, String
+from sqlalchemy import Enum, ForeignKey, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base, UUIDPk, utcnow
@@ -21,6 +23,11 @@ class User(UUIDPk, Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(Enum(Role, name="user_role"), default=Role.user)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Settings shared by all the user's clients (app.me.preferences). Only values the user
+    # changed are stored, so defaults can still change later.
+    preferences: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
 
 
 class RefreshToken(UUIDPk, Base):

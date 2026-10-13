@@ -4,15 +4,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import ARRAY, Text, delete, func, literal, select, update
+from sqlalchemy.dialects.postgresql import JSONB, insert
 
+from app.auth.models import User
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
 from app.library.models import Track
 from app.library.queries import track_out, track_select
 from app.me.models import PlayEvent, TrackLike
+from app.me.preferences import Preferences, PreferencesPatch, load_preferences
 from app.schemas import Page, TrackOut
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -127,3 +129,29 @@ async def list_recent_tracks(
         )
     )
     return [RecentTrack(played_at=played_at, track=track_out(t, liked)) for t, played_at in rows]
+
+
+@router.get("/preferences", response_model=Preferences)
+async def get_preferences(user: CurrentUser) -> Preferences:
+    return load_preferences(user.preferences)
+
+
+@router.patch("/preferences", response_model=Preferences)
+async def update_preferences(
+    body: PreferencesPatch, session: SessionDep, user: CurrentUser
+) -> Preferences:
+    changes = body.model_dump(mode="json", exclude_unset=True)
+    values = {key: value for key, value in changes.items() if value is not None}
+    resets = [key for key, value in changes.items() if value is None]
+    # Merged in SQL: two devices changing different settings at once both keep their change.
+    merged = User.preferences.op("||", return_type=JSONB)(literal(values, JSONB)).op(
+        "-", return_type=JSONB
+    )(literal(resets, ARRAY(Text)))
+    stored = await session.scalar(
+        update(User)
+        .where(User.id == user.id)
+        .values(preferences=merged)
+        .returning(User.preferences)
+    )
+    await session.commit()
+    return load_preferences(stored or {})
