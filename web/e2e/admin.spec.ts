@@ -494,7 +494,8 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
   await expect(dialog.getByRole("listitem")).toHaveText(/Northern Encore\s*Added · Live Sessions/);
   await expect(status("Added")).toHaveText("Added 1 track");
   await dialog.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
+  const albumsOf = page.getByRole("region", { name: "Albums" });
+  await expect(albumsOf.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
 
   await menu("Aurora Fields", "Move albums");
   dialog = page.getByRole("dialog", { name: "Move albums" });
@@ -504,8 +505,8 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
   await expectAccessible(page);
   await dialog.getByRole("button", { name: "Move" }).click();
   await expect(status("Moved")).toHaveText("Moved 1 album to Glass Harbor");
-  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toHaveCount(0);
   await expect(heading("Aurora Fields")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toHaveCount(0);
 
   // A genre taken off its albums.
   await page.goto("/albums?genre=Electronic");
@@ -542,7 +543,7 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
   await dialog.getByRole("button", { name: "Give" }).click();
   await expect(status("Merged")).toHaveText("Merged into Aurora Fields");
   await expect(heading("Aurora Fields")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
+  await expect(albumsOf.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
 
   // The files say what the library shows: nothing new for a scan to read.
   expect(await scanned(baseURL!)).toMatchObject({
