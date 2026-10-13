@@ -1,8 +1,10 @@
+import asyncio
 import enum
 import re
+import shutil
 import uuid
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
@@ -201,6 +203,27 @@ def _safe_name(name: str) -> str:
     return cleaned or "upload"
 
 
+def _save_upload(src: BinaryIO, directory: Path, name: str) -> Path:
+    """Copies an upload to the first free name: "x.mp3", "x (1).mp3", ... Never overwrites:
+    the name is claimed with an exclusive create, so concurrent uploads can't collide."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    dest, n = directory / name, 1
+    while True:
+        try:
+            out = dest.open("xb")
+        except FileExistsError:
+            dest = directory / f"{stem} ({n}){suffix}"
+            n += 1
+            continue
+        try:
+            with out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+        except BaseException:
+            dest.unlink(missing_ok=True)
+            raise
+        return dest
+
+
 @admin_router.post(
     "/uploads", response_model=list[UploadResult], status_code=status.HTTP_202_ACCEPTED
 )
@@ -208,22 +231,17 @@ async def upload(
     files: list[UploadFile], session: SessionDep, settings: SettingsDep, _: AdminUser
 ) -> list[UploadResult]:
     """Saves audio files into `<library>/uploads/` and queues them for import."""
-    results = []
-    settings.uploads_path.mkdir(parents=True, exist_ok=True)
-    for file in files:
-        name = _safe_name(file.filename or "upload")
+    names = [_safe_name(file.filename or "upload") for file in files]
+    # Validate the whole batch first so a rejected request leaves nothing on disk.
+    for file, name in zip(files, names, strict=True):
         if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
             raise HTTPException(
                 status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Not an audio file: {file.filename}"
             )
-        dest = settings.uploads_path / name
-        stem, suffix, n = dest.stem, dest.suffix, 1
-        while dest.exists():
-            dest = dest.with_name(f"{stem} ({n}){suffix}")
-            n += 1
-        with dest.open("wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                out.write(chunk)
+    settings.uploads_path.mkdir(parents=True, exist_ok=True)
+    results = []
+    for file, name in zip(files, names, strict=True):
+        dest = await asyncio.to_thread(_save_upload, file.file, settings.uploads_path, name)
         rel = dest.relative_to(settings.library_path).as_posix()
         await enqueue(session, "import_track", {"path": rel}, dedupe_key=f"import:{rel}")
         results.append(UploadResult(path=rel))

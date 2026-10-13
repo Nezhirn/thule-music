@@ -111,13 +111,31 @@ async def test_upload_imports_file(client, admin, make_audio, run_jobs, tmp_path
     assert [t["title"] for t in tracks] == ["Uploaded"]
 
 
-async def test_upload_rejects_non_audio(client, admin):
+async def test_upload_keeps_existing_files(client, admin, make_audio, settings):
+    src = make_audio("../outside.mp3", title="Uploaded", artist="U", album="Up")
+    data = src.read_bytes()
     resp = await client.post(
         "/library/uploads",
-        files=[("files", ("x.exe", b"MZ", "application/octet-stream"))],
+        files=[("files", ("song.mp3", data, "audio/mpeg")), ("files", ("song.mp3", data))],
+        headers=admin,
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json() == [{"path": "uploads/song.mp3"}, {"path": "uploads/song (1).mp3"}]
+    assert (settings.uploads_path / "song (1).mp3").read_bytes() == data
+
+
+async def test_upload_rejects_non_audio(client, admin, settings):
+    resp = await client.post(
+        "/library/uploads",
+        files=[
+            ("files", ("ok.mp3", b"ID3", "audio/mpeg")),
+            ("files", ("x.exe", b"MZ", "application/octet-stream")),
+        ],
         headers=admin,
     )
     assert resp.status_code == 415
+    # Nothing from the rejected batch is written.
+    assert not settings.uploads_path.exists() or not any(settings.uploads_path.iterdir())
 
 
 async def test_admin_endpoints_require_admin(client, user):
@@ -142,3 +160,4 @@ def test_resolve_in_library_blocks_traversal(tmp_path):
     with pytest.raises(ValueError):
         resolve_in_library(tmp_path, "../etc/passwd")
     assert resolve_in_library(tmp_path, "a/b.mp3") == (tmp_path / "a/b.mp3").resolve()
+
