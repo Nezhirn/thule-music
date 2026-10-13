@@ -55,12 +55,21 @@ def _cover_hash(rel: str) -> str:
 async def housekeeping(ctx: JobContext, payload: dict[str, Any]) -> None:
     now = utcnow()
     async with ctx.sessionmaker() as session:
+        # The latest scan stays however old: the admin page shows what it found.
+        last_scan = (
+            select(Job.id)
+            .where(Job.kind == "scan_library", Job.status == JobStatus.done)
+            .order_by(Job.finished_at.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
         jobs = await session.execute(
             delete(Job).where(
                 or_(
                     and_(Job.status == JobStatus.done, Job.finished_at < now - KEEP_DONE_JOBS),
                     and_(Job.status == JobStatus.failed, Job.finished_at < now - KEEP_FAILED_JOBS),
-                )
+                ),
+                Job.id.is_distinct_from(last_scan),
             )
         )
         tokens = await session.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))

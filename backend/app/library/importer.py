@@ -334,7 +334,9 @@ async def _stale_lyrics(
     return stale
 
 
-async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
+async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, int]:
+    """Compares the library folder with the database and queues the work that follows. The
+    counts it returns are files: added and updated ones are queued for import, not yet done."""
     root = ctx.settings.library_path
     if not root.is_dir():
         raise FileNotFoundError(f"Library path does not exist: {root}")
@@ -424,13 +426,15 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
         if await session.scalar(select(exists().where(Cover.palette.is_(None)))):
             await enqueue(session, "cover_palettes", dedupe_key="cover_palettes")
         await session.commit()
-    log.info(
-        "scan: %d files, %d moved, %d to import, %d removed",
-        len(on_disk),
-        len(moves),
-        len(changed),
-        len(removed),
-    )
+    result = {
+        "files": len(on_disk),
+        "added": sum(1 for path in changed if path not in known and path not in moves),
+        "updated": sum(1 for path in changed if path in known),
+        "moved": len(moves),
+        "removed": len(removed),
+    }
+    log.info("scan: %s", result)
+    return result
 
 
 async def _upsert_artist(session: AsyncSession, name: str) -> uuid.UUID:

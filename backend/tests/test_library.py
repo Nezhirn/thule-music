@@ -171,23 +171,23 @@ async def test_upload_imports_file(client, admin, make_audio, run_jobs, tmp_path
             headers=admin,
         )
     assert resp.status_code == 202, resp.text
-    assert resp.json() == [{"path": "uploads/evil name.mp3"}]
+    assert resp.json() == [{"path": "uploads/evil name.mp3", "duplicate": False}]
     await run_jobs()
     tracks = (await client.get("/tracks", headers=admin)).json()["items"]
     assert [t["title"] for t in tracks] == ["Uploaded"]
 
 
 async def test_upload_keeps_existing_files(client, admin, make_audio, settings):
-    src = make_audio("../outside.mp3", title="Uploaded", artist="U", album="Up")
-    data = src.read_bytes()
+    first = make_audio("../one.mp3", title="One", artist="U", album="Up").read_bytes()
+    second = make_audio("../two.mp3", title="Two", artist="U", album="Up").read_bytes()
     resp = await client.post(
         "/library/uploads",
-        files=[("files", ("song.mp3", data, "audio/mpeg")), ("files", ("song.mp3", data))],
+        files=[("files", ("song.mp3", first, "audio/mpeg")), ("files", ("song.mp3", second))],
         headers=admin,
     )
     assert resp.status_code == 202, resp.text
-    assert resp.json() == [{"path": "uploads/song.mp3"}, {"path": "uploads/song (1).mp3"}]
-    assert (settings.uploads_path / "song (1).mp3").read_bytes() == data
+    assert [r["path"] for r in resp.json()] == ["uploads/song.mp3", "uploads/song (1).mp3"]
+    assert (settings.uploads_path / "song (1).mp3").read_bytes() == second
 
 
 async def test_upload_rejects_non_audio(client, admin, settings):
@@ -213,7 +213,7 @@ async def test_admin_endpoints_require_admin(client, user):
 async def test_jobs_listing(client, admin, make_audio, run_jobs):
     make_audio("a/1.mp3", title="T", artist="A", album="X")
     await scan(client, admin, run_jobs)
-    jobs = (await client.get("/library/jobs", headers=admin)).json()
+    jobs = (await client.get("/library/jobs", headers=admin)).json()["items"]
     assert {j["kind"] for j in jobs} == {
         "scan_library",
         "import_track",

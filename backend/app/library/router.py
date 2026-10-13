@@ -1,21 +1,12 @@
-import asyncio
 import enum
-import re
-import shutil
 import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import Annotated, BinaryIO
+from typing import Annotated
 
-from fastapi import APIRouter, Query, UploadFile, status
-from pydantic import ConfigDict
+from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
-from app.config import AUDIO_EXTENSIONS
-from app.deps import AdminUser, CurrentUser, SessionDep, SettingsDep
+from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
-from app.jobs.models import Job, JobStatus
-from app.jobs.queue import enqueue
 from app.library.models import Album, Artist, Track, TrackArtist
 from app.library.queries import (
     ALBUM_LOAD,
@@ -30,7 +21,6 @@ from app.me.models import PlayEvent
 from app.schemas import (
     AlbumDetail,
     AlbumOut,
-    ApiModel,
     ArtistDetail,
     ArtistOut,
     GenreOut,
@@ -39,7 +29,6 @@ from app.schemas import (
 )
 
 router = APIRouter(tags=["library"])
-admin_router = APIRouter(prefix="/library", tags=["admin"])
 
 Limit = Annotated[int, Query(ge=1, le=200)]
 Offset = Annotated[int, Query(ge=0)]
@@ -233,127 +222,3 @@ async def list_genres(session: SessionDep, _: CurrentUser) -> list[GenreOut]:
         .order_by(func.count().desc(), key)
     )
     return [GenreOut(name=name, album_count=count) for name, count in rows]
-
-
-# --- admin -----------------------------------------------------------------------------
-
-
-class JobOut(ApiModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    kind: str
-    status: JobStatus
-    payload: dict
-    attempts: int
-    error: str | None
-
-
-class JobCounts(ApiModel):
-    queued: int = 0
-    running: int = 0
-    done: int = 0
-    failed: int = 0
-
-
-class JobSummary(ApiModel):
-    # Per job kind: scan_library, import_track, transcode, fetch_lyrics, ...
-    kinds: dict[str, JobCounts]
-    # Work left over all kinds (queued + running); 0 when the library is up to date.
-    pending: int
-    failed: int
-
-
-class UploadResult(ApiModel):
-    path: str
-
-
-@admin_router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
-async def start_scan(session: SessionDep, _: AdminUser) -> dict[str, str]:
-    await enqueue(session, "scan_library", dedupe_key="scan")
-    await session.commit()
-    return {"status": "queued"}
-
-
-_UNSAFE = re.compile(r"[^\w\-. ()\[\]&,']+", re.UNICODE)
-
-
-def _safe_name(name: str) -> str:
-    cleaned = _UNSAFE.sub("_", Path(name).name).strip(" .")
-    return cleaned or "upload"
-
-
-def _save_upload(src: BinaryIO, directory: Path, name: str) -> Path:
-    """Copies an upload to the first free name: "x.mp3", "x (1).mp3", ... Never overwrites:
-    the name is claimed with an exclusive create, so concurrent uploads can't collide."""
-    stem, suffix = Path(name).stem, Path(name).suffix
-    dest, n = directory / name, 1
-    while True:
-        try:
-            out = dest.open("xb")
-        except FileExistsError:
-            dest = directory / f"{stem} ({n}){suffix}"
-            n += 1
-            continue
-        try:
-            with out:
-                shutil.copyfileobj(src, out, 1024 * 1024)
-        except BaseException:
-            dest.unlink(missing_ok=True)
-            raise
-        return dest
-
-
-@admin_router.post(
-    "/uploads", response_model=list[UploadResult], status_code=status.HTTP_202_ACCEPTED
-)
-async def upload_files(
-    files: list[UploadFile], session: SessionDep, settings: SettingsDep, _: AdminUser
-) -> list[UploadResult]:
-    """Saves audio files into `<library>/uploads/` and queues them for import."""
-    names = [_safe_name(file.filename or "upload") for file in files]
-    # Validate the whole batch first so a rejected request leaves nothing on disk.
-    for file, name in zip(files, names, strict=True):
-        if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
-            raise ApiError(ErrorCode.not_an_audio_file, f"Not an audio file: {file.filename}")
-    settings.uploads_path.mkdir(parents=True, exist_ok=True)
-    results = []
-    for file, name in zip(files, names, strict=True):
-        dest = await asyncio.to_thread(_save_upload, file.file, settings.uploads_path, name)
-        rel = dest.relative_to(settings.library_path).as_posix()
-        await enqueue(session, "import_track", {"path": rel}, dedupe_key=f"import:{rel}")
-        results.append(UploadResult(path=rel))
-    await session.commit()
-    return results
-
-
-@admin_router.get("/jobs", response_model=list[JobOut])
-async def list_jobs(
-    session: SessionDep,
-    _: AdminUser,
-    status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
-    limit: Limit = 50,
-) -> list[Job]:
-    query = select(Job).order_by(Job.created_at.desc()).limit(limit)
-    if status_filter is not None:
-        query = query.where(Job.status == status_filter)
-    return list(await session.scalars(query))
-
-
-@admin_router.get("/jobs/summary", response_model=JobSummary)
-async def get_job_summary(
-    session: SessionDep, _: AdminUser, since: datetime | None = None
-) -> JobSummary:
-    """Progress of background work, for a scan/import indicator. `since` counts only jobs
-    created after that moment (e.g. when the client started a scan)."""
-    query = select(Job.kind, Job.status, func.count()).group_by(Job.kind, Job.status)
-    if since is not None:
-        query = query.where(Job.created_at >= since)
-    kinds: dict[str, JobCounts] = {}
-    for kind, job_status, count in await session.execute(query):
-        setattr(kinds.setdefault(kind, JobCounts()), job_status.value, count)
-    return JobSummary(
-        kinds=kinds,
-        pending=sum(c.queued + c.running for c in kinds.values()),
-        failed=sum(c.failed for c in kinds.values()),
-    )

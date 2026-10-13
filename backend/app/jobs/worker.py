@@ -13,7 +13,7 @@ from app.config import Settings, get_settings
 from app.db import make_engine, make_sessionmaker
 from app.jobs.context import JobContext
 from app.jobs.housekeeping import housekeeping, schedule_housekeeping
-from app.jobs.queue import claim, mark_done, mark_failed
+from app.jobs.queue import PermanentFailure, claim, mark_done, mark_failed
 from app.library.covers import backfill_palettes
 from app.library.importer import import_track, refresh_album_cover, scan_library
 from app.lyrics.fetch import fetch_lyrics
@@ -21,7 +21,8 @@ from app.media.transcode import transcode_track
 
 log = logging.getLogger("thule.worker")
 
-Handler = Callable[[JobContext, dict[str, Any]], Awaitable[None]]
+# A handler may return what it found (stored as the job's result).
+Handler = Callable[[JobContext, dict[str, Any]], Awaitable[dict[str, Any] | None]]
 
 HANDLERS: dict[str, Handler] = {
     "scan_library": scan_library,
@@ -51,14 +52,18 @@ async def run_one(ctx: JobContext) -> bool:
     try:
         if handler is None:
             raise LookupError(f"Unknown job kind: {job.kind}")
-        await handler(ctx, job.payload)
+        result = await handler(ctx, job.payload)
+    except PermanentFailure as exc:
+        log.warning("job %s (%s) failed: %s", job.id, job.kind, exc)
+        async with ctx.sessionmaker() as session:
+            await mark_failed(session, job, str(exc), retry=False)
     except Exception as exc:
         log.exception("job %s (%s) failed", job.id, job.kind)
         async with ctx.sessionmaker() as session:
             await mark_failed(session, job, f"{type(exc).__name__}: {exc}")
     else:
         async with ctx.sessionmaker() as session:
-            await mark_done(session, job)
+            await mark_done(session, job, result)
     return True
 
 

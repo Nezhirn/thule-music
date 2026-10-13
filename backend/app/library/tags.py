@@ -11,6 +11,7 @@ from mutagen.flac import FLAC, Picture, VCFLACDict
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 
+from app.jobs.queue import PermanentFailure
 from app.library.models import name_key
 
 UNKNOWN_ARTIST = "Unknown Artist"
@@ -26,8 +27,9 @@ MAX_GENRE = 128
 LEGACY_ENCODING = "cp1251"
 
 
-class UnreadableAudio(Exception):
-    pass
+class UnreadableAudio(PermanentFailure):
+    """Not an audio file, or a damaged one: importing it again won't help until it changes
+    (and then a scan imports it anyway)."""
 
 
 @dataclass

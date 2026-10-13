@@ -115,4 +115,4 @@ async def test_retagged_track_moves_album_art_along(client, admin, make_audio, r
     albums = (await client.get("/albums", headers=admin)).json()["items"]
     assert [a["title"] for a in albums] == ["New"]
     jobs = (await client.get("/library/jobs?status=failed", headers=admin)).json()
-    assert jobs == []
+    assert jobs["items"] == []

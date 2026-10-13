@@ -16,6 +16,7 @@ from app.auth.schemas import (
     RegisterIn,
     SetupStatus,
     TokenPair,
+    UserAdminOut,
     UserOut,
     UserPatch,
 )
@@ -63,6 +64,7 @@ async def _revoke_sessions(session: AsyncSession, user_id: uuid.UUID) -> None:
 
 async def _issue_tokens(session: AsyncSession, settings: Settings, user: User) -> TokenPair:
     raw, token_hash = new_refresh_token()
+    user.last_seen_at = utcnow()
     session.add(
         RefreshToken(
             user_id=user.id,
@@ -243,9 +245,26 @@ async def _user_by_name(session: AsyncSession, username: str) -> User:
     return user
 
 
-@users_router.get("", response_model=list[UserOut])
-async def list_users(session: SessionDep, _: AdminUser) -> list[User]:
-    return list(await session.scalars(select(User).order_by(User.created_at)))
+@users_router.get("", response_model=list[UserAdminOut])
+async def list_users(session: SessionDep, _: AdminUser) -> list[UserAdminOut]:
+    """Oldest first, so the first administrator leads."""
+    sessions = dict(
+        (
+            await session.execute(
+                select(RefreshToken.user_id, func.count())
+                .where(RefreshToken.revoked_at.is_(None), RefreshToken.expires_at > utcnow())
+                .group_by(RefreshToken.user_id)
+            )
+        ).all()
+    )
+    return [
+        UserAdminOut(
+            **UserOut.model_validate(user).model_dump(),
+            last_seen_at=user.last_seen_at,
+            sessions=sessions.get(user.id, 0),
+        )
+        for user in await session.scalars(select(User).order_by(User.created_at))
+    ]
 
 
 @users_router.patch("/{username}", response_model=UserOut)
@@ -268,6 +287,15 @@ async def reset_password(
     """Sets a new password for a user and signs out all their sessions."""
     user = await _user_by_name(session, username)
     user.password_hash = hash_password(body.new_password)
+    await _revoke_sessions(session, user.id)
+    await session.commit()
+
+
+@users_router.delete("/{username}/sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def sign_out_user(username: str, session: SessionDep, _: AdminUser) -> None:
+    """Signs the user out on every device (an access token already issued keeps working
+    until it expires, within minutes)."""
+    user = await _user_by_name(session, username)
     await _revoke_sessions(session, user.id)
     await session.commit()
 

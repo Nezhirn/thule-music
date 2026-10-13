@@ -170,7 +170,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Users */
+        /**
+         * List Users
+         * @description Oldest first, so the first administrator leads.
+         */
         get: operations["list_users"];
         put?: never;
         post?: never;
@@ -213,6 +216,27 @@ export interface paths {
          */
         post: operations["reset_password"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{username}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Sign Out User
+         * @description Signs the user out on every device (an access token already issued keeps working
+         *     until it expires, within minutes).
+         */
+        delete: operations["sign_out_user"];
         options?: never;
         head?: never;
         patch?: never;
@@ -340,6 +364,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Library Stats */
+        get: operations["get_library_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/scan": {
         parameters: {
             query?: never;
@@ -347,30 +388,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Start Scan */
-        post: operations["start_scan"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/library/uploads": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
+        /**
+         * Get Last Scan
+         * @description The latest scan: waiting, running or finished. Null before the first one.
+         */
+        get: operations["get_last_scan"];
         put?: never;
         /**
-         * Upload Files
-         * @description Saves audio files into `<library>/uploads/` and queues them for import.
+         * Start Scan
+         * @description Queues a scan of the library folder; when one is already waiting or running, that
+         *     one is returned instead.
          */
-        post: operations["upload_files"];
+        post: operations["start_scan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -384,7 +413,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Jobs */
+        /**
+         * List Jobs
+         * @description Newest first.
+         */
         get: operations["list_jobs"];
         put?: never;
         post?: never;
@@ -409,6 +441,111 @@ export interface paths {
         get: operations["get_job_summary"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/jobs/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Failed Jobs
+         * @description Runs every failed job again, from its first attempt.
+         */
+        post: operations["retry_failed_jobs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Job
+         * @description Runs a failed job again, from its first attempt. The failed one is replaced.
+         */
+        post: operations["retry_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/jobs/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear Failed Jobs
+         * @description Forgets the failed jobs (they would be cleaned up after 30 days anyway).
+         */
+        delete: operations["clear_failed_jobs"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Files
+         * @description Saves files into `<library>/uploads/<folder>/` and queues the audio ones for import.
+         *     Besides audio, an album's cover image (cover.jpg, folder.png, ...) and lyrics files
+         *     (.lrc, .txt) are taken: `folder` keeps an album's files together, e.g. "Artist/Album"
+         *     for a dropped album folder. A file already in the library byte for byte is not saved
+         *     again. Results are in the order of the files.
+         */
+        post: operations["upload_files"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/uploads/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Import Status
+         * @description How the import of each file is going (files as `upload_files` returned them), in
+         *     the order asked. A POST only so that many long paths fit.
+         */
+        post: operations["get_import_status"];
         delete?: never;
         options?: never;
         head?: never;
@@ -994,6 +1131,11 @@ export interface components {
         Body_upload_files: {
             /** Files */
             files: string[];
+            /**
+             * Folder
+             * @default
+             */
+            folder?: string;
         };
         /**
          * CoverPalette
@@ -1022,7 +1164,7 @@ export interface components {
          * ErrorCode
          * @enum {string}
          */
-        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
+        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "job_not_found" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
         /** ErrorOut */
         ErrorOut: {
             code: components["schemas"]["ErrorCode"];
@@ -1053,6 +1195,25 @@ export interface components {
             recently_played: components["schemas"]["AlbumOut"][];
             /** For You */
             for_you: components["schemas"]["AlbumOut"][];
+        };
+        /**
+         * ImportState
+         * @enum {string}
+         */
+        ImportState: "queued" | "importing" | "imported" | "failed" | "missing";
+        /** ImportStatus */
+        ImportStatus: {
+            /** Path */
+            path: string;
+            state: components["schemas"]["ImportState"];
+            /** Error */
+            error: string | null;
+            track: components["schemas"]["TrackOut"] | null;
+        };
+        /** ImportStatusIn */
+        ImportStatusIn: {
+            /** Paths */
+            paths: string[];
         };
         /** JobCounts */
         JobCounts: {
@@ -1093,8 +1254,19 @@ export interface components {
             };
             /** Attempts */
             attempts: number;
+            /** Max Attempts */
+            max_attempts: number;
             /** Error */
             error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Subject */
+            subject: string | null;
         };
         /**
          * JobStatus
@@ -1111,6 +1283,19 @@ export interface components {
             pending: number;
             /** Failed */
             failed: number;
+        };
+        /** LibraryStats */
+        LibraryStats: {
+            /** Artists */
+            artists: number;
+            /** Albums */
+            albums: number;
+            /** Tracks */
+            tracks: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Size Bytes */
+            size_bytes: number;
         };
         /** LyricLine */
         LyricLine: {
@@ -1162,6 +1347,17 @@ export interface components {
         Page_ArtistOut_: {
             /** Items */
             items: components["schemas"]["ArtistOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** Page[JobOut] */
+        Page_JobOut_: {
+            /** Items */
+            items: components["schemas"]["JobOut"][];
             /** Total */
             total: number;
             /** Limit */
@@ -1375,11 +1571,53 @@ export interface components {
             /** @default user */
             role?: components["schemas"]["Role"];
         };
+        /** RetryResult */
+        RetryResult: {
+            /** Retried */
+            retried: number;
+        };
         /**
          * Role
          * @enum {string}
          */
         Role: "admin" | "user";
+        /** ScanOut */
+        ScanOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            status: components["schemas"]["JobStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Error */
+            error: string | null;
+            result: components["schemas"]["ScanResult"] | null;
+            imports: components["schemas"]["JobCounts"];
+        };
+        /**
+         * ScanResult
+         * @description What a scan found, in files. Added and updated ones were queued for import: the
+         *     import goes on after the scan is done (see the job summary).
+         */
+        ScanResult: {
+            /** Files */
+            files: number;
+            /** Added */
+            added: number;
+            /** Updated */
+            updated: number;
+            /** Moved */
+            moved: number;
+            /** Removed */
+            removed: number;
+        };
         /** SearchOut */
         SearchOut: {
             /** Artists */
@@ -1467,6 +1705,38 @@ export interface components {
         UploadResult: {
             /** Path */
             path: string;
+            /**
+             * Duplicate
+             * @default false
+             */
+            duplicate: boolean;
+        };
+        /**
+         * UserAdminOut
+         * @description A user as administrators see them.
+         */
+        UserAdminOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string | null;
+            role: components["schemas"]["Role"];
+            /** Avatar Id */
+            avatar_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Seen At */
+            last_seen_at: string | null;
+            /** Sessions */
+            sessions: number;
         };
         /** UserOut */
         UserOut: {
@@ -1839,7 +2109,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOut"][];
+                    "application/json": components["schemas"]["UserAdminOut"][];
                 };
             };
             /** @description Error */
@@ -1931,6 +2201,35 @@ export interface operations {
                 "application/json": components["schemas"]["PasswordReset"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    sign_out_user: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             204: {
@@ -2173,6 +2472,64 @@ export interface operations {
             };
         };
     };
+    get_library_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryStats"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_last_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanOut"] | null;
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     start_scan: {
         parameters: {
             query?: never;
@@ -2188,10 +2545,158 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ScanOut"];
                 };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    list_jobs: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["JobStatus"] | null;
+                kind?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_JobOut_"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_job_summary: {
+        parameters: {
+            query?: {
+                since?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobSummary"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    retry_failed_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryResult"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    retry_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    clear_failed_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             "4XX": {
@@ -2237,17 +2742,18 @@ export interface operations {
             };
         };
     };
-    list_jobs: {
+    get_import_status: {
         parameters: {
-            query?: {
-                status?: components["schemas"]["JobStatus"] | null;
-                limit?: number;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportStatusIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2255,38 +2761,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobOut"][];
-                };
-            };
-            /** @description Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorOut"];
-                };
-            };
-        };
-    };
-    get_job_summary: {
-        parameters: {
-            query?: {
-                since?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobSummary"];
+                    "application/json": components["schemas"]["ImportStatus"][];
                 };
             };
             /** @description Error */

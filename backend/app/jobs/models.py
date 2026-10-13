@@ -29,6 +29,8 @@ class Job(UUIDPk, Base):
     attempts: Mapped[int] = mapped_column(default=0)
     max_attempts: Mapped[int] = mapped_column(default=3)
     error: Mapped[str | None] = mapped_column(Text)
+    # What a finished job reports, e.g. a scan's counts of added and removed files.
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     run_after: Mapped[datetime] = mapped_column(default=utcnow)
     locked_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

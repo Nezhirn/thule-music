@@ -51,6 +51,7 @@ class ErrorCode(enum.StrEnum):
     cover_file_missing = "cover_file_missing"
     invalid_cover_size = "invalid_cover_size"
     lyrics_not_found = "lyrics_not_found"
+    job_not_found = "job_not_found"
     # playlists
     playlist_not_found = "playlist_not_found"
     playlist_item_not_found = "playlist_item_not_found"
@@ -79,13 +80,14 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.artist_not_found: (404, "Artist not found"),
     ErrorCode.album_not_found: (404, "Album not found"),
     ErrorCode.track_not_found: (404, "Track not found"),
-    ErrorCode.not_an_audio_file: (415, "Not an audio file"),
+    ErrorCode.not_an_audio_file: (415, "Not an audio file, cover image or lyrics file"),
     ErrorCode.invalid_stream_signature: (401, "Missing or invalid signature"),
     ErrorCode.audio_file_missing: (404, "Audio file is missing on disk"),
     ErrorCode.cover_not_found: (404, "Cover not found"),
     ErrorCode.cover_file_missing: (404, "Cover file is missing"),
     ErrorCode.invalid_cover_size: (422, "Unsupported cover size"),
     ErrorCode.lyrics_not_found: (404, "No lyrics for this track"),
+    ErrorCode.job_not_found: (404, "No such failed job"),
     ErrorCode.playlist_not_found: (404, "Playlist not found"),
     ErrorCode.playlist_item_not_found: (404, "Playlist item not found"),
     ErrorCode.unknown_tracks: (404, "Unknown tracks"),

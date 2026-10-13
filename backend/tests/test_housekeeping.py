@@ -32,6 +32,16 @@ async def test_old_jobs_and_expired_tokens_are_removed(job_ctx, sessionmaker, us
         session.add(
             Job(kind="queued", status=JobStatus.queued, created_at=now - timedelta(days=90))
         )
+        # The last scan stays, to show what it found; the one before goes.
+        for days in (20, 9):
+            session.add(
+                Job(
+                    kind="scan_library",
+                    status=JobStatus.done,
+                    finished_at=now - timedelta(days=days),
+                    result={"days": days},
+                )
+            )
         token = (await session.scalars(select(RefreshToken))).first()
         session.add(
             RefreshToken(
@@ -44,8 +54,10 @@ async def test_old_jobs_and_expired_tokens_are_removed(job_ctx, sessionmaker, us
 
     async with sessionmaker() as session:
         kinds = set(await session.scalars(select(Job.kind)))
+        scans = list(await session.scalars(select(Job.result).where(Job.kind == "scan_library")))
         hashes = set(await session.scalars(select(RefreshToken.token_hash)))
-    assert kinds == {"done-1", "failed-10", "queued"}
+    assert kinds == {"done-1", "failed-10", "queued", "scan_library"}
+    assert scans == [{"days": 9}]
     assert "x" * 64 not in hashes and hashes  # the live sessions stay
 
 

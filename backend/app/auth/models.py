@@ -27,6 +27,9 @@ class User(UUIDPk, Base):
         ForeignKey("covers.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # When the user last signed in or a client of theirs renewed its tokens (every few
+    # minutes while in use). None until the first sign-in.
+    last_seen_at: Mapped[datetime | None]
     # Settings shared by all the user's clients (app.me.preferences). Only values the user
     # changed are stored, so defaults can still change later.
     preferences: Mapped[dict[str, Any]] = mapped_column(

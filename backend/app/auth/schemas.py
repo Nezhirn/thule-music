@@ -66,3 +66,11 @@ class UserOut(ApiModel):
     role: Role
     avatar_id: uuid.UUID | None
     created_at: datetime
+
+
+class UserAdminOut(UserOut):
+    """A user as administrators see them."""
+
+    last_seen_at: datetime | None
+    # Devices signed in: unexpired refresh tokens.
+    sessions: int
