@@ -36,7 +36,7 @@ function setup() {
       quality: "high",
       codec: "opus",
       bitrate: 160,
-      expires_at: "2026-10-13T16:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z",
     }),
     scrobble: async () => {},
     quality: () => "high",
