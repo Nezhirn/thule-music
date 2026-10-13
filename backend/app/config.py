@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://thule:thule@localhost:5432/thule"
     # Postgres schema for our tables (tests use a separate one). pg_trgm lives in `public`.
     db_schema: str = "public"
-    secret_key: str = "dev-secret-change-me"
+    # Signs JWTs and stream URLs. No default: a well-known one would let anyone forge tokens.
+    secret_key: str
 
     # Music library root (scanned recursively). Uploads land in `<library_path>/uploads`.
     library_path: Path = Path("./library")

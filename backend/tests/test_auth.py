@@ -1,3 +1,7 @@
+import pytest
+from pydantic import ValidationError
+
+from app.config import Settings
 from tests.conftest import register_and_login
 
 
@@ -77,3 +81,9 @@ async def test_logout_revokes_refresh_token(client):
     assert resp.status_code == 204
     again = await client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
     assert again.status_code == 401
+
+
+def test_secret_key_has_no_default(monkeypatch):
+    monkeypatch.delenv("THULE_SECRET_KEY", raising=False)
+    with pytest.raises(ValidationError, match="secret_key"):
+        Settings(_env_file=None)
