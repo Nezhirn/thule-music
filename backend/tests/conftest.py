@@ -59,7 +59,7 @@ def settings(migrated_schema: str, tmp_path: Path) -> Settings:
         db_schema=migrated_schema,
         library_path=library,
         data_path=tmp_path / "data",
-        secret_key="test-secret",
+        secret_key="test-secret-key-0123456789abcdef0123",
         lrclib_enabled=False,
     )
 

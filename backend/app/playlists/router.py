@@ -3,7 +3,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import ARRAY, Uuid, func, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -85,7 +85,7 @@ async def _summaries(session: AsyncSession, playlists: list[Playlist]) -> list[P
                 .where(PlaylistItem.playlist_id.in_(ids))
                 .group_by(PlaylistItem.playlist_id)
             )
-        ).tuples()
+        )
     }
     first_pos = (
         select(
@@ -98,13 +98,11 @@ async def _summaries(session: AsyncSession, playlists: list[Playlist]) -> list[P
         .subquery()
     )
     covers: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for pid, cover_id in (
-        await session.execute(
-            select(first_pos.c.playlist_id, first_pos.c.cover_id).order_by(
-                first_pos.c.playlist_id, first_pos.c.pos
-            )
+    for pid, cover_id in await session.execute(
+        select(first_pos.c.playlist_id, first_pos.c.cover_id).order_by(
+            first_pos.c.playlist_id, first_pos.c.pos
         )
-    ).tuples():
+    ):
         bucket = covers.setdefault(pid, [])
         if len(bucket) < 4:
             bucket.append(cover_id)
@@ -154,10 +152,20 @@ async def _detail(session: AsyncSession, user: User, playlist: Playlist) -> Play
 
 
 async def _renumber(session: AsyncSession, playlist_id: uuid.UUID, ordered: list[uuid.UUID]):
-    for pos, item_id in enumerate(ordered):
-        await session.execute(
-            update(PlaylistItem).where(PlaylistItem.id == item_id).values(position=pos)
-        )
+    """Sets each item's position to its index in `ordered`, in a single statement: one
+    round trip per item takes seconds for a long playlist on a remote database."""
+    if not ordered:
+        return
+    new_order = (
+        func.unnest(literal(ordered, ARRAY(Uuid)))
+        .table_valued("item_id", with_ordinality="pos")
+        .render_derived()
+    )
+    await session.execute(
+        update(PlaylistItem)
+        .where(PlaylistItem.playlist_id == playlist_id, PlaylistItem.id == new_order.c.item_id)
+        .values(position=new_order.c.pos - 1)
+    )
 
 
 async def _item_ids(session: AsyncSession, playlist_id: uuid.UUID) -> list[uuid.UUID]:

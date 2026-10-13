@@ -35,6 +35,12 @@ async def run_one(ctx: JobContext) -> bool:
         job = await claim(session)
     if job is None:
         return False
+    if job.attempts > job.max_attempts:
+        # Re-claimed as stale after its worker died mid-run (crash, OOM, kill) on every
+        # attempt. Running it again would just take the next worker down too.
+        async with ctx.sessionmaker() as session:
+            await mark_failed(session, job, "Worker stopped while running this job")
+        return True
 
     handler = HANDLERS.get(job.kind)
     try:

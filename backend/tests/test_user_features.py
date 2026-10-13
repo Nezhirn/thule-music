@@ -38,6 +38,7 @@ async def test_playlist_lifecycle(client, admin, user, catalog):
     )
     items = front.json()["items"]
     assert items[0]["track"]["title"] == "A Line in the Dust"
+    assert [i["position"] for i in items] == [0, 1, 2, 3]
     moved = await client.post(
         f"/playlists/{pid}/move",
         json={"item_id": items[-1]["item_id"], "position": 1},
@@ -55,6 +56,7 @@ async def test_playlist_lifecycle(client, admin, user, catalog):
         "Solitude",
         "Dissolution",
     ]
+    assert [i["position"] for i in removed.json()["items"]] == [0, 1, 2]
 
     renamed = await client.patch(f"/playlists/{pid}", json={"name": "Chill"}, headers=user)
     assert renamed.json()["name"] == "Chill"

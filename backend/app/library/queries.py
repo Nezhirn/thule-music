@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 
 from sqlalchemy import Select, func, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
@@ -101,21 +102,17 @@ async def artists_out(session: AsyncSession, artists: Sequence[Artist]) -> list[
                 .where(Album.artist_id.in_(ids))
                 .group_by(Album.artist_id)
             )
-        )
-        .tuples()
-        .all()
+        ).all()
     )
     covers = dict(
         (
             await session.execute(
                 select(Album.artist_id, Album.cover_id)
                 .where(Album.artist_id.in_(ids), Album.cover_id.is_not(None))
-                .distinct(Album.artist_id)
+                .ext(distinct_on(Album.artist_id))
                 .order_by(Album.artist_id, Album.year.desc().nulls_last(), Album.added_at.desc())
             )
-        )
-        .tuples()
-        .all()
+        ).all()
     )
     return [
         ArtistOut(id=a.id, name=a.name, cover_id=covers.get(a.id), album_count=counts.get(a.id, 0))

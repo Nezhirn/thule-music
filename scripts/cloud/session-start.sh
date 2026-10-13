@@ -1,7 +1,7 @@
 #!/bin/bash
 # SessionStart hook (see .claude/settings.json): readies the backend in Claude Code cloud
-# sessions — starts the VM-local Postgres, installs Python deps, applies migrations.
-# Does nothing on local machines.
+# sessions — starts the VM-local Postgres, creates its role/database if missing, installs
+# Python deps, applies migrations. Does nothing on local machines.
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
 set -uo pipefail
@@ -10,6 +10,7 @@ LOG=/tmp/thule-session-start.log
 : >"$LOG"
 
 as_root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
+as_postgres() { if [ "$(id -u)" = 0 ]; then runuser -u postgres -- "$@"; else sudo -n -u postgres "$@"; fi; }
 
 problems=()
 
@@ -17,7 +18,25 @@ if ! pg_isready -q -h localhost; then
   as_root service postgresql start >>"$LOG" 2>&1
   for _ in $(seq 1 30); do pg_isready -q -h localhost && break; sleep 1; done
 fi
-pg_isready -q -h localhost || problems+=("postgres not running")
+
+# Role `thule` / password `thule`, database `thule` with pg_trgm — must match
+# THULE_DATABASE_URL in environment.env. setup-environment.sh creates them too, but its
+# result isn't always in the cached image, so make sure here (idempotent).
+ensure_database() {
+  as_postgres psql -q -v ON_ERROR_STOP=1 -d postgres <<'SQL' &&
+SELECT 'CREATE ROLE thule LOGIN PASSWORD ''thule'''
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'thule') \gexec
+SELECT 'CREATE DATABASE thule OWNER thule'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'thule') \gexec
+SQL
+    as_postgres psql -q -v ON_ERROR_STOP=1 -d thule -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+}
+
+if ! pg_isready -q -h localhost; then
+  problems+=("postgres not running")
+elif ! ensure_database >>"$LOG" 2>&1; then
+  problems+=("could not create role/database thule")
+fi
 
 cd "$BACKEND" || exit 0
 if command -v uv >/dev/null; then
