@@ -466,7 +466,7 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
   await menu("Aurora Fields", "Change picture");
   dialog = page.getByRole("dialog", { name: "Artist picture" });
   await dialog.getByLabel("Choose an image").setInputFiles(portrait);
-  await expect(status("Changed the cover")).toHaveText("Changed the cover of Aurora Fields");
+  await expect(status("Changed the picture")).toHaveText("Changed the picture of Aurora Fields");
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(art).not.toHaveAttribute("src", albumCover!);
 

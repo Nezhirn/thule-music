@@ -126,7 +126,7 @@ export function ArtistPicker({
               name={artist.name}
               coverId={artist.cover_id}
               sizes="40px"
-              className={styles.thumb}
+              className={`${styles.thumb} ${styles.portrait}`}
             />
             <span className={styles.name}>
               {artist.name}

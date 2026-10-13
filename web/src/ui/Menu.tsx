@@ -28,6 +28,15 @@ interface Props {
   children: ReactNode;
 }
 
+/** Where what is inside `element` stops showing on the left: the edge of the nearest
+ * ancestor that clips its content, else of the window. */
+function clippedLeft(element: HTMLElement): number {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowX !== "visible") return node.getBoundingClientRect().left;
+  }
+  return 0;
+}
+
 /** A button opening a list of actions, with the keyboard behaviour of the WAI-ARIA menu
  * button: arrows move between the items, Escape closes and returns to the button. */
 export function Menu({ label, trigger, header, triggerClassName, children }: Props) {
@@ -38,12 +47,15 @@ export function Menu({ label, trigger, header, triggerClassName, children }: Pro
   // Which item to focus once open: the first, or the last (opened with the up arrow).
   const [open, setOpen] = useState<"first" | "last" | null>(null);
 
-  // Opens upwards where there is no room below (a button near the bottom of the window).
+  // Opens upwards where there is no room below (a button near the bottom of the window), and
+  // rightwards where there is none on the left (a button near the start of its panel).
   useLayoutEffect(() => {
     if (!open || !popup.current || !button.current) return;
-    const { top, bottom } = button.current.getBoundingClientRect();
+    const { top, bottom, right } = button.current.getBoundingClientRect();
     const below = window.innerHeight - bottom;
     popup.current.toggleAttribute("data-up", below < popup.current.offsetHeight + 8 && top > below);
+    const room = right - clippedLeft(button.current);
+    popup.current.toggleAttribute("data-start", room < popup.current.offsetWidth + 8);
   }, [open]);
 
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];

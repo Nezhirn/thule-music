@@ -420,6 +420,7 @@ export const en = {
       artist: "Artist picture",
       artistNote: "Kept on the server: it shows instead of the cover of their newest album.",
       resetArtist: "Show the album cover",
+      artistChanged: (name: string) => `Changed the picture of ${name}`,
       changed: (name: string) => `Changed the cover of ${name}`,
     },
   },

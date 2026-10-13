@@ -301,7 +301,7 @@ export function useArtistCover(artist: Pick<Artist, "id" | "name">) {
     },
     onSuccess: () => {
       libraryEdited(queryClient);
-      announce(t.edits.cover.changed(artist.name));
+      announce(t.edits.cover.artistChanged(artist.name));
     },
   });
 }

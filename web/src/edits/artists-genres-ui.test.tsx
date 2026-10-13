@@ -181,7 +181,7 @@ test("an artist's picture chosen, then given up for the album cover", async () =
     within(dialog).getByLabelText("Choose an image"),
     new File(["png"], "me.png", { type: "image/png" }),
   );
-  await waitFor(() => expect(toast()).toBe("Changed the cover of Северный Ветер"));
+  await waitFor(() => expect(toast()).toBe("Changed the picture of Северный Ветер"));
   expect(calls.at(-1)).toMatchObject({ method: "PUT", path: `/api/v1/artists/${WIND.id}/cover` });
 
   await user.click(within(dialog).getByRole("button", { name: "Show the album cover" }));

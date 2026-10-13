@@ -464,6 +464,7 @@ export const ru: Messages = {
       artist: "Фото исполнителя",
       artistNote: "Хранится на сервере и показывается вместо обложки его последнего альбома.",
       resetArtist: "Показывать обложку альбома",
+      artistChanged: (name: string) => `Фото «${name}» изменено`,
       changed: (name: string) => `Обложка «${name}» изменена`,
     },
   },

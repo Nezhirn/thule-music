@@ -36,7 +36,8 @@
 }
 
 /* An artist's picture: round, as on their page. */
-.preview.portrait {
+.preview.portrait,
+.thumb.portrait {
   border-radius: 50%;
 }
 
