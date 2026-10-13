@@ -1,0 +1,46 @@
+name: thule-music
+
+# Database settings come from backend/.env (THULE_DATABASE_URL, THULE_SECRET_KEY, ...).
+# No external Postgres? Start the bundled one with `docker compose --profile local-db up -d`
+# and set THULE_DATABASE_URL=postgresql+asyncpg://thule:thule@postgres:5432/thule.
+
+x-backend: &backend
+  build: ./backend
+  env_file: ./backend/.env
+  environment:
+    THULE_LIBRARY_PATH: /library
+    THULE_DATA_PATH: /data
+  volumes:
+    - ${MUSIC_LIBRARY:-./library}:/library
+    - thule-data:/data
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *backend
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.jobs.worker", "--concurrency", "2"]
+
+  postgres:
+    profiles: ["local-db"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: thule
+      POSTGRES_PASSWORD: thule
+      POSTGRES_DB: thule
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thule -d thule"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  thule-data:
