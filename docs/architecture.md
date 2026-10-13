@@ -54,13 +54,13 @@ POST /library/scan или /library/uploads
 
 ## API
 
-Префикс `/api/v1`, интерактивная документация — `/docs`, схема — `/openapi.json`. OpenAPI — контракт для web-клиента (генерация TS-типов) и KMP-клиента.
+Префикс `/api/v1`, интерактивная документация — `/docs`, схема — `/openapi.json`. OpenAPI — контракт для web-клиента (генерация TS-типов) и KMP-клиента. Поле ответа со значением по умолчанию в схеме обязательное, потому что в JSON оно есть всегда. В запросах такие поля необязательные. Так сгенерированные клиенты получают точные типы.
 
 Ошибки — всегда `{"code": ..., "detail": ...}`. `code` — стабильный идентификатор из перечисления `ErrorCode` (`invalid_credentials`, `track_not_found`, …): по нему клиенты показывают переведённое сообщение. `detail` — английский текст для разработчика, а у ошибок валидации (`validation_error`, 422) — список полей с `loc` и `type`.
 
 ## Клиенты (следующие фазы)
 
-**Web (фаза 2):** React + Vite + TypeScript, TanStack Query, типы из OpenAPI, CSS `backdrop-filter` для стекла, `<audio>` + Media Session API.
+**Web (фаза 2):** React + Vite + TypeScript, TanStack Query, типы из OpenAPI, CSS `backdrop-filter` для стекла, `<audio>` + Media Session API. Код лежит в `web/`. Dev-сервер Vite проксирует `/api` на бэкенд, поэтому браузер работает с одним origin, как в продакшне.
 
 **Android + Linux (фаза 3):** Kotlin Multiplatform + Compose Multiplatform, Ktor-клиент, blur — Haze. Android: Media3/ExoPlayer + `MediaSessionService`. Linux: VLCJ или GStreamer (выбрать прототипом), MPRIS через D-Bus.
 

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+# E2E stand: generated music library, server data, reports
+.e2e/
+test-results/
+playwright-report/

@@ -1,0 +1,40 @@
+{
+  "albums": [
+    {
+      "artist": "Aurora Fields",
+      "title": "Northern Lights",
+      "year": 2024,
+      "genre": "Electronic",
+      "format": "flac",
+      "cover": { "in": "folder", "color": "#1e8c8c" },
+      "tracks": ["Polar Drift", "Glass Sky", "Slow Aurora"]
+    },
+    {
+      "artist": "Aurora Fields",
+      "title": "Polar Night",
+      "year": 2025,
+      "genre": "Electronic",
+      "format": "mp3",
+      "cover": { "in": "file", "color": "#2a3a9c" },
+      "tracks": ["Midnight Sun", "Ice Road"]
+    },
+    {
+      "artist": "The Glass Harbor",
+      "title": "Low Tide",
+      "year": 2023,
+      "genre": "Indie",
+      "format": "ogg",
+      "cover": { "in": "folder", "color": "#e0702a" },
+      "tracks": ["Harbor Lights", "Salt", "Undertow"]
+    },
+    {
+      "artist": "Mira Vale",
+      "title": "Paper Moons",
+      "year": 2026,
+      "genre": "Pop",
+      "format": "m4a",
+      "cover": null,
+      "tracks": ["Paper Moon", "Neon Rain"]
+    }
+  ]
+}

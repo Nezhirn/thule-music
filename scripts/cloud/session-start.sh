@@ -1,7 +1,7 @@
 #!/bin/bash
-# SessionStart hook (see .claude/settings.json): readies the backend in Claude Code cloud
+# SessionStart hook (see .claude/settings.json): readies the project in Claude Code cloud
 # sessions — starts the VM-local Postgres, creates its role/database if missing, installs
-# Python deps, applies migrations. Does nothing on local machines.
+# Python and npm deps, applies migrations. Does nothing on local machines.
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
 set -uo pipefail
@@ -51,9 +51,15 @@ if [ ${#problems[@]} -eq 0 ]; then
 fi
 command -v ffmpeg >/dev/null || problems+=("ffmpeg missing (check the environment setup script)")
 
+# Web client: install npm deps unless node_modules is already newer than the lockfile.
+WEB="${CLAUDE_PROJECT_DIR:-$(pwd)}/web"
+if [ -f "$WEB/package-lock.json" ] && [ ! "$WEB/node_modules/.package-lock.json" -nt "$WEB/package-lock.json" ]; then
+  (cd "$WEB" && npm ci --no-audit --no-fund) >>"$LOG" 2>&1 || problems+=("npm ci in web/ failed")
+fi
+
 # stdout becomes context for Claude, so keep it short.
 if [ ${#problems[@]} -eq 0 ]; then
-  echo "thule-music cloud setup OK: local Postgres on localhost:5432 (db thule), venv at backend/.venv, migrations applied. Run tests: cd backend && .venv/bin/pytest -q"
+  echo "thule-music cloud setup OK: local Postgres on localhost:5432 (db thule), venv at backend/.venv, migrations applied, web deps installed. Tests: cd backend && .venv/bin/pytest -q; cd web && npm run verify"
 else
   echo "thule-music cloud setup had problems: ${problems[*]}. Details: $LOG"
 fi
