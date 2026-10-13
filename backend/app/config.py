@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
 
     worker_poll_interval_seconds: float = 1.0
+    housekeeping_interval_seconds: int = 6 * 3600
 
     @property
     def uploads_path(self) -> Path:

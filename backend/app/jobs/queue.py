@@ -14,6 +14,13 @@ from app.jobs.models import Job, JobStatus
 STALE_AFTER = timedelta(minutes=30)
 
 
+# Skips a job whose dedupe_key is already queued or running.
+_INSERT_JOB = insert(Job).on_conflict_do_nothing(
+    index_elements=[Job.dedupe_key],
+    index_where=text("status IN ('queued', 'running') AND dedupe_key IS NOT NULL"),
+)
+
+
 async def enqueue(
     session: AsyncSession,
     kind: str,
@@ -24,15 +31,25 @@ async def enqueue(
 ) -> None:
     """Adds a job within the caller's transaction (caller commits). If a job with the same
     dedupe_key is already queued or running, this is a no-op."""
-    stmt = insert(Job).values(
-        kind=kind, payload=payload or {}, dedupe_key=dedupe_key, max_attempts=max_attempts
-    )
-    if dedupe_key is not None:
-        stmt = stmt.on_conflict_do_nothing(
-            index_elements=[Job.dedupe_key],
-            index_where=text("status IN ('queued', 'running') AND dedupe_key IS NOT NULL"),
-        )
-    await session.execute(stmt)
+    await enqueue_many(session, kind, [(payload or {}, dedupe_key)], max_attempts=max_attempts)
+
+
+async def enqueue_many(
+    session: AsyncSession,
+    kind: str,
+    jobs: list[tuple[dict[str, Any], str | None]],
+    *,
+    max_attempts: int = 3,
+) -> None:
+    """Like `enqueue` for many (payload, dedupe_key) pairs, in one batched statement: a scan
+    queues thousands of imports, and a round trip each is slow on a remote database."""
+    if not jobs:
+        return
+    rows = [
+        {"kind": kind, "payload": payload, "dedupe_key": key, "max_attempts": max_attempts}
+        for payload, key in jobs
+    ]
+    await session.execute(_INSERT_JOB, rows)
 
 
 async def claim(session: AsyncSession) -> Job | None:

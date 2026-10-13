@@ -8,7 +8,7 @@ from app.deps import CurrentUser, SessionDep
 from app.library.models import Album, Artist, Track
 from app.library.queries import (
     ALBUM_LOAD,
-    album_out,
+    albums_out,
     artists_out,
     contains,
     track_select,
@@ -84,7 +84,7 @@ async def search(
     ).all()
 
     return SearchOut(
-        artists=await artists_out(session, artists),
-        albums=[album_out(a) for a in albums],
+        artists=await artists_out(session, user.id, artists),
+        albums=await albums_out(session, user.id, albums),
         tracks=await tracks_out(session, user.id, tracks),
     )

@@ -1,8 +1,12 @@
-from urllib.parse import urlsplit
+import asyncio
+import os
+import time
 
+import pytest
 from sqlalchemy import delete
 
 from app.library.models import TrackFile
+from app.media.transcode import run_ffmpeg
 
 
 async def one_track(client, admin, make_audio, run_jobs) -> dict:
@@ -13,8 +17,8 @@ async def one_track(client, admin, make_audio, run_jobs) -> dict:
 
 
 def path_and_query(url: str) -> str:
-    parts = urlsplit(url)
-    return parts.path.removeprefix("/api/v1") + "?" + parts.query
+    assert url.startswith("/api/v1/tracks/"), url  # relative to the server, no host
+    return url.removeprefix("/api/v1")
 
 
 async def test_stream_original_supports_range(client, admin, make_audio, run_jobs, settings):
@@ -85,3 +89,22 @@ async def test_cover_sizes(client, admin, make_audio, run_jobs):
         assert resp.status_code == 200
         assert "immutable" in resp.headers["cache-control"]
     assert (await client.get(f"/covers/{album['cover_id']}?size=65")).status_code == 422
+
+
+async def test_hung_ffmpeg_is_killed(tmp_path, monkeypatch):
+    fake = tmp_path / "bin" / "ffmpeg"
+    fake.parent.mkdir()
+    pid_file = tmp_path / "pid"
+    fake.write_text(f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 30\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}:{os.environ['PATH']}")
+    dst = tmp_path / "out" / "x.opus"
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.5):
+            await run_ffmpeg(tmp_path / "in.mp3", dst, 96)
+    assert time.monotonic() - started < 5
+    assert not dst.exists() and not dst.with_suffix(".part").exists()
+    with pytest.raises(ProcessLookupError):  # killed and reaped, not left running
+        os.kill(int(pid_file.read_text()), 0)

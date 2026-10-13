@@ -4,12 +4,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
+from app.errors import ApiError, ErrorCode
 from app.library.covers import COVER_SIZES, cover_file
 from app.library.importer import resolve_in_library
 from app.library.models import Cover, Track, TrackFile, Variant
@@ -36,13 +37,14 @@ class Quality(enum.StrEnum):
 
 
 class StreamUrl(BaseModel):
+    # Path + query, without scheme and host: resolve it against the server address.
     url: str
     quality: Quality
     expires_at: datetime
 
 
 @router.get("/tracks/{track_id}/stream-url", response_model=StreamUrl)
-async def stream_url(
+async def get_stream_url(
     track_id: uuid.UUID,
     request: Request,
     session: SessionDep,
@@ -50,13 +52,15 @@ async def stream_url(
     _: CurrentUser,
     quality: Quality = Quality.high,
 ) -> StreamUrl:
-    """Returns a signed URL that plays without an Authorization header.
+    """Returns a signed URL that plays without an Authorization header. It is relative to
+    the server (`/api/v1/tracks/...`): an absolute one would be built from the request's
+    Host and scheme, which a reverse proxy may not pass through.
 
     The URL is pinned to a rendition that exists right now: if the requested transcode is
     not ready yet, it points at the original. Otherwise a transcode finishing mid-playback
     would make later Range requests read a different file."""
     if await session.get(Track, track_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Track not found")
+        raise ApiError(ErrorCode.track_not_found)
     if quality != Quality.original and not await session.scalar(
         select(TrackFile.id).where(
             TrackFile.track_id == track_id, TrackFile.variant == Variant(quality.value)
@@ -66,14 +70,18 @@ async def stream_url(
     expires, sig = signing.sign(
         settings.secret_key, track_id, quality.value, settings.stream_url_ttl_seconds
     )
-    url = request.url_for("stream", track_id=track_id).include_query_params(
+    url = request.url_for("stream_track", track_id=track_id).include_query_params(
         quality=quality.value, exp=expires, sig=sig
     )
-    return StreamUrl(url=str(url), quality=quality, expires_at=datetime.fromtimestamp(expires, UTC))
+    return StreamUrl(
+        url=f"{url.path}?{url.query}",
+        quality=quality,
+        expires_at=datetime.fromtimestamp(expires, UTC),
+    )
 
 
-@router.get("/tracks/{track_id}/stream", name="stream", response_class=FileResponse)
-async def stream(
+@router.get("/tracks/{track_id}/stream", response_class=FileResponse)
+async def stream_track(
     track_id: uuid.UUID,
     session: SessionDep,
     settings: SettingsDep,
@@ -89,11 +97,11 @@ async def stream(
         or sig is None
         or not signing.verify(settings.secret_key, track_id, quality.value, exp, sig)
     ):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid signature")
+        raise ApiError(ErrorCode.invalid_stream_signature)
 
     track = await session.get(Track, track_id)
     if track is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Track not found")
+        raise ApiError(ErrorCode.track_not_found)
 
     if quality != Quality.original:
         variant = await session.scalar(
@@ -115,7 +123,7 @@ async def stream(
 
     path = resolve_in_library(settings.library_path, track.path)
     if not path.is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Audio file is missing on disk")
+        raise ApiError(ErrorCode.audio_file_missing)
     media_type = AUDIO_MIME.get(path.suffix.casefold()) or (
         mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     )
@@ -140,15 +148,13 @@ async def get_cover(
 ) -> FileResponse:
     """Public (no auth) so `<img src>` works; ids are unguessable UUIDs."""
     if size is not None and size not in COVER_SIZES:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, f"size must be one of {COVER_SIZES}"
-        )
+        raise ApiError(ErrorCode.invalid_cover_size, f"size must be one of {COVER_SIZES}")
     cover = await session.get(Cover, cover_id)
     if cover is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cover not found")
+        raise ApiError(ErrorCode.cover_not_found)
     path = cover_file(settings.covers_path, cover, size)
     if not path.is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cover file is missing")
+        raise ApiError(ErrorCode.cover_file_missing)
     return FileResponse(
         path,
         media_type="image/jpeg",

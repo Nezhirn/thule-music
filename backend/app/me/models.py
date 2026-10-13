@@ -19,6 +19,30 @@ class TrackLike(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class AlbumLike(Base):
+    __tablename__ = "album_likes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    album_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("albums.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ArtistLike(Base):
+    __tablename__ = "artist_likes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    artist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class PlayEvent(UUIDPk, Base):
     __tablename__ = "play_events"
 

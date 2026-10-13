@@ -1,18 +1,27 @@
 """Renders Opus variants of a track with ffmpeg (runs inside the job worker)."""
 
 import asyncio
+import contextlib
 import os
+import time
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
 
 from app.jobs.context import JobContext
+from app.jobs.queue import STALE_AFTER
 from app.library.importer import resolve_in_library
 from app.library.models import VARIANT_BITRATES, Track, TrackFile, Variant
 
 OPUS_MIME = "audio/ogg; codecs=opus"
+
+# An encode slower than real time (plus a minute of slack) is treated as hung and killed.
+# The whole job must also end well before the queue deems it stale and hands it to another
+# worker, which would then run ffmpeg on the same files in parallel.
+JOB_BUDGET = STALE_AFTER - timedelta(minutes=5)
 
 
 class TranscodeError(Exception):
@@ -53,7 +62,14 @@ async def run_ffmpeg(src: Path, dst: Path, bitrate_kbps: int) -> None:
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
+    try:
+        _, stderr = await proc.communicate()
+    except BaseException:  # cancelled (timeout, shutdown): don't leave ffmpeg running
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        tmp.unlink(missing_ok=True)
+        raise
     if proc.returncode != 0:
         tmp.unlink(missing_ok=True)
         raise TranscodeError(stderr.decode(errors="replace").strip() or "ffmpeg failed")
@@ -74,11 +90,17 @@ async def transcode_track(ctx: JobContext, payload: dict[str, Any]) -> None:
         if track is None:
             return
         src = resolve_in_library(ctx.settings.library_path, track.path)
+        deadline = time.monotonic() + JOB_BUDGET.total_seconds()
 
         for variant in needed_variants(track):
             dst = variant_path(ctx.settings.transcodes_path, track.id, variant)
             bitrate = VARIANT_BITRATES[variant]
-            await run_ffmpeg(src, dst, bitrate)
+            timeout = min(60 + track.duration_ms / 1000, deadline - time.monotonic())
+            try:
+                async with asyncio.timeout(max(timeout, 0)):
+                    await run_ffmpeg(src, dst, bitrate)
+            except TimeoutError:
+                raise TranscodeError(f"ffmpeg did not finish within {timeout:.0f} s") from None
             values = {
                 "path": str(dst.relative_to(ctx.settings.transcodes_path)),
                 "mime": OPUS_MIME,

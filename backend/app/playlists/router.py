@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 from sqlalchemy import ARRAY, Uuid, func, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.models import User
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
+from app.errors import ApiError, ErrorCode
 from app.library.models import Album, Track
 from app.library.queries import TRACK_LOAD, liked_ids, track_out
 from app.playlists.models import Playlist, PlaylistItem
@@ -64,7 +65,7 @@ class MoveIn(BaseModel):
 async def _own_playlist(session: AsyncSession, user: User, playlist_id: uuid.UUID) -> Playlist:
     playlist = await session.get(Playlist, playlist_id, with_for_update=True)
     if playlist is None or playlist.owner_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Playlist not found")
+        raise ApiError(ErrorCode.playlist_not_found)
     return playlist
 
 
@@ -202,7 +203,7 @@ async def create_playlist(body: PlaylistIn, session: SessionDep, user: CurrentUs
 async def get_playlist(playlist_id: uuid.UUID, session: SessionDep, user: CurrentUser):
     playlist = await session.get(Playlist, playlist_id)
     if playlist is None or playlist.owner_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Playlist not found")
+        raise ApiError(ErrorCode.playlist_not_found)
     return await _detail(session, user, playlist)
 
 
@@ -228,14 +229,14 @@ async def delete_playlist(playlist_id: uuid.UUID, session: SessionDep, user: Cur
 
 
 @router.post("/{playlist_id}/tracks", response_model=PlaylistDetail)
-async def add_tracks(
+async def add_playlist_tracks(
     playlist_id: uuid.UUID, body: AddTracksIn, session: SessionDep, user: CurrentUser
 ):
     playlist = await _own_playlist(session, user, playlist_id)
     found = set(await session.scalars(select(Track.id).where(Track.id.in_(body.track_ids))))
     missing = [str(t) for t in body.track_ids if t not in found]
     if missing:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown tracks: {', '.join(missing)}")
+        raise ApiError(ErrorCode.unknown_tracks, f"Unknown tracks: {', '.join(missing)}")
 
     ordered = await _item_ids(session, playlist.id)
     insert_at = len(ordered) if body.position is None else min(body.position, len(ordered))
@@ -252,13 +253,13 @@ async def add_tracks(
 
 
 @router.delete("/{playlist_id}/tracks/{item_id}", response_model=PlaylistDetail)
-async def remove_item(
+async def remove_playlist_item(
     playlist_id: uuid.UUID, item_id: uuid.UUID, session: SessionDep, user: CurrentUser
 ):
     playlist = await _own_playlist(session, user, playlist_id)
     item = await session.get(PlaylistItem, item_id)
     if item is None or item.playlist_id != playlist.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+        raise ApiError(ErrorCode.playlist_item_not_found)
     await session.delete(item)
     await session.flush()
     await _renumber(session, playlist.id, await _item_ids(session, playlist.id))
@@ -268,11 +269,13 @@ async def remove_item(
 
 
 @router.post("/{playlist_id}/move", response_model=PlaylistDetail)
-async def move_item(playlist_id: uuid.UUID, body: MoveIn, session: SessionDep, user: CurrentUser):
+async def move_playlist_item(
+    playlist_id: uuid.UUID, body: MoveIn, session: SessionDep, user: CurrentUser
+):
     playlist = await _own_playlist(session, user, playlist_id)
     ordered = await _item_ids(session, playlist.id)
     if body.item_id not in ordered:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+        raise ApiError(ErrorCode.playlist_item_not_found)
     ordered.remove(body.item_id)
     ordered.insert(min(body.position, len(ordered)), body.item_id)
     await _renumber(session, playlist.id, ordered)

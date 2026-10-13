@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
 from app.library.models import Album, Track
-from app.library.queries import ALBUM_LOAD, album_out
+from app.library.queries import ALBUM_LOAD, albums_out
 from app.me.models import PlayEvent, TrackLike
 from app.schemas import AlbumOut
 
@@ -29,14 +29,16 @@ class HomeOut(BaseModel):
     for_you: list[AlbumOut]
 
 
-async def _albums_by_ids(session: AsyncSession, ids: list[uuid.UUID]) -> list[AlbumOut]:
+async def _albums_by_ids(
+    session: AsyncSession, user_id: uuid.UUID, ids: list[uuid.UUID]
+) -> list[AlbumOut]:
     if not ids:
         return []
     by_id = {
         a.id: a
         for a in await session.scalars(select(Album).where(Album.id.in_(ids)).options(*ALBUM_LOAD))
     }
-    return [album_out(by_id[i]) for i in ids if i in by_id]
+    return await albums_out(session, user_id, [by_id[i] for i in ids if i in by_id])
 
 
 async def _recently_played(
@@ -116,7 +118,7 @@ async def _for_you(session: AsyncSession, user_id: uuid.UUID, limit: int) -> lis
 
 
 @router.get("/home", response_model=HomeOut)
-async def home(
+async def get_home(
     session: SessionDep,
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=50)] = 12,
@@ -127,9 +129,9 @@ async def home(
         )
     )
     return HomeOut(
-        new_releases=await _albums_by_ids(session, new_ids),
+        new_releases=await _albums_by_ids(session, user.id, new_ids),
         recently_played=await _albums_by_ids(
-            session, await _recently_played(session, user.id, limit)
+            session, user.id, await _recently_played(session, user.id, limit)
         ),
-        for_you=await _albums_by_ids(session, await _for_you(session, user.id, limit)),
+        for_you=await _albums_by_ids(session, user.id, await _for_you(session, user.id, limit)),
     )

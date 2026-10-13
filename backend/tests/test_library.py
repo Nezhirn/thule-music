@@ -47,7 +47,7 @@ async def test_scan_imports_tags_covers_and_groups_albums(
     albums = (await client.get("/albums?sort=title", headers=admin)).json()["items"]
     night = next(a for a in albums if a["title"] == "Night")
     assert night["year"] == 2020
-    assert night["cover_color"] == "#c82828"
+    assert night["cover_palette"]["average"] == "#c82828"
 
     detail = (await client.get(f"/albums/{night['id']}", headers=admin)).json()
     assert [t["title"] for t in detail["tracks"]] == ["A Line in the Dust", "Second"]
@@ -56,7 +56,7 @@ async def test_scan_imports_tags_covers_and_groups_albums(
 
     # FLAC got its artwork from the folder's cover.png
     lune = next(a for a in albums if a["title"] == "Écailles de Lune")
-    assert lune["cover_color"] == "#0a0a5a"
+    assert lune["cover_palette"]["average"] == "#0a0a5a"
     cover = await client.get(f"/covers/{lune['cover_id']}?size=64")
     assert cover.status_code == 200
     assert cover.headers["content-type"] == "image/jpeg"
@@ -87,6 +87,71 @@ async def test_rescan_removes_deleted_files_and_orphans(client, admin, make_audi
     artists = (await client.get("/artists", headers=admin)).json()["items"]
     assert [a["name"] for a in artists] == ["A"]
     assert keep.exists()
+
+
+async def test_moved_files_keep_track_and_user_data(client, admin, make_audio, run_jobs, settings):
+    make_audio("Old/01.mp3", title="One", artist="A", album="X", track=1, cover=(9, 9, 9))
+    make_audio("Old/02.mp3", title="Two", artist="A", album="X", track=2, cover=(9, 9, 9))
+    await scan(client, admin, run_jobs)
+    before = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    one = before["One"]["id"]
+    await client.put(f"/me/likes/tracks/{one}", headers=admin)
+    playlist = (await client.post("/playlists", json={"name": "P"}, headers=admin)).json()
+    await client.post(
+        f"/playlists/{playlist['id']}/tracks", json={"track_ids": [one]}, headers=admin
+    )
+    await client.post("/me/plays", json={"track_id": one}, headers=admin)
+
+    (settings.library_path / "Renamed").mkdir()
+    (settings.library_path / "Old").rename(settings.library_path / "Renamed" / "X (2020)")
+    await client.post("/library/scan", headers=admin)
+    assert await run_jobs() == 1  # a plain move needs no re-import
+
+    after = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert {t: v["id"] for t, v in after.items()} == {t: v["id"] for t, v in before.items()}
+    assert after["One"]["album"]["id"] == before["One"]["album"]["id"]
+    assert after["One"]["liked"]
+    detail = (await client.get(f"/playlists/{playlist['id']}", headers=admin)).json()
+    assert [i["track"]["id"] for i in detail["items"]] == [one]
+    recent = (await client.get("/me/recent", headers=admin)).json()
+    assert [r["track"]["id"] for r in recent] == [one]
+    assert (
+        await client.get(f"/tracks/{one}/stream?quality=original", headers=admin)
+    ).status_code == 200
+
+
+async def test_replaced_file_with_same_tags_keeps_track(client, admin, make_audio, run_jobs):
+    old = make_audio("a/01.mp3", title="One", artist="A", album="X", track=1)
+    await scan(client, admin, run_jobs)
+    (track,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    await client.put(f"/me/likes/tracks/{track['id']}", headers=admin)
+
+    # Re-encoded as FLAC in another folder: neither size nor mtime match, the tags do.
+    old.unlink()
+    make_audio("b/01.flac", title="One", artist="A", album="X", track=1)
+    await scan(client, admin, run_jobs)
+
+    (after,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert after["id"] == track["id"]
+    assert after["codec"] == "flac"  # re-read from the new file
+    assert after["liked"]
+
+
+async def test_ambiguous_moves_are_imported_as_new_tracks(client, admin, make_audio, run_jobs):
+    tags = {"title": "Dup", "artist": "A", "album": "X", "track": 1}
+    first = make_audio("a/01.mp3", **tags)
+    second = make_audio("b/01.mp3", **tags)
+    await scan(client, admin, run_jobs)
+    old_ids = {t["id"] for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+
+    first.unlink()
+    second.unlink()
+    make_audio("c/01.flac", **tags)
+    make_audio("d/01.flac", **tags)
+    await scan(client, admin, run_jobs)
+
+    new_ids = {t["id"] for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert len(new_ids) == 2 and not new_ids & old_ids
 
 
 async def test_unchanged_files_are_not_reimported(client, admin, make_audio, run_jobs):
@@ -141,6 +206,7 @@ async def test_upload_rejects_non_audio(client, admin, settings):
 async def test_admin_endpoints_require_admin(client, user):
     assert (await client.post("/library/scan", headers=user)).status_code == 403
     assert (await client.get("/library/jobs", headers=user)).status_code == 403
+    assert (await client.get("/library/jobs/summary", headers=user)).status_code == 403
 
 
 async def test_jobs_listing(client, admin, make_audio, run_jobs):
@@ -156,10 +222,39 @@ async def test_jobs_listing(client, admin, make_audio, run_jobs):
     assert all(j["status"] == "done" for j in jobs)
 
 
+async def test_jobs_summary(client, admin, make_audio, run_jobs):
+    make_audio("a/1.mp3", title="T", artist="A", album="X")
+    await client.post("/library/scan", headers=admin)
+    summary = (await client.get("/library/jobs/summary", headers=admin)).json()
+    assert summary["pending"] == 1 and summary["kinds"]["scan_library"]["queued"] == 1
+
+    await run_jobs()
+    summary = (await client.get("/library/jobs/summary", headers=admin)).json()
+    assert summary["pending"] == 0 and summary["failed"] == 0
+    assert summary["kinds"]["import_track"] == {"queued": 0, "running": 0, "done": 1, "failed": 0}
+
+    later = await client.get("/library/jobs/summary?since=2999-01-01T00:00:00Z", headers=admin)
+    assert later.json() == {"kinds": {}, "pending": 0, "failed": 0}
+
+
 def test_resolve_in_library_blocks_traversal(tmp_path):
-    with pytest.raises(ValueError):
-        resolve_in_library(tmp_path, "../etc/passwd")
-    assert resolve_in_library(tmp_path, "a/b.mp3") == (tmp_path / "a/b.mp3").resolve()
+    for bad in ("../etc/passwd", "a/../../etc/passwd", "/etc/passwd"):
+        with pytest.raises(ValueError):
+            resolve_in_library(tmp_path, bad)
+    assert resolve_in_library(tmp_path, "a/b.mp3") == tmp_path.resolve() / "a/b.mp3"
+
+
+async def test_files_in_symlinked_folders_are_imported(
+    client, admin, make_audio, run_jobs, settings, tmp_path
+):
+    (tmp_path / "elsewhere").mkdir()
+    make_audio("../elsewhere/1.mp3", title="Linked", artist="A", album="X")
+    (settings.library_path / "Linked").symlink_to(tmp_path / "elsewhere")
+    await scan(client, admin, run_jobs)
+    (track,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert track["title"] == "Linked"
+    stream = await client.get(f"/tracks/{track['id']}/stream?quality=high", headers=admin)
+    assert stream.status_code == 200 and stream.headers["x-thule-quality"] == "high"
 
 
 def test_scan_follows_symlinks_but_not_cycles(tmp_path):
@@ -170,4 +265,4 @@ def test_scan_follows_symlinks_but_not_cycles(tmp_path):
     (tmp_path / "elsewhere").mkdir()
     (tmp_path / "elsewhere" / "2.flac").touch()
     (root / "B").symlink_to(tmp_path / "elsewhere")  # regular linked folder
-    assert set(_walk(root)) == {"A/1.mp3", "B/2.flac"}
+    assert set(_walk(root)[0]) == {"A/1.mp3", "B/2.flac"}

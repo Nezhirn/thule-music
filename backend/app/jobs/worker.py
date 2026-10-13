@@ -12,8 +12,10 @@ import httpx
 from app.config import Settings, get_settings
 from app.db import make_engine, make_sessionmaker
 from app.jobs.context import JobContext
+from app.jobs.housekeeping import housekeeping, schedule_housekeeping
 from app.jobs.queue import claim, mark_done, mark_failed
-from app.library.importer import import_track, scan_library
+from app.library.covers import backfill_palettes
+from app.library.importer import import_track, refresh_album_cover, scan_library
 from app.lyrics.fetch import fetch_lyrics
 from app.media.transcode import transcode_track
 
@@ -26,6 +28,9 @@ HANDLERS: dict[str, Handler] = {
     "import_track": import_track,
     "transcode": transcode_track,
     "fetch_lyrics": fetch_lyrics,
+    "cover_palettes": backfill_palettes,
+    "album_cover": refresh_album_cover,
+    "housekeeping": housekeeping,
 }
 
 
@@ -86,8 +91,17 @@ async def main(settings: Settings, concurrency: int = 2) -> None:
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(stop.wait(), settings.worker_poll_interval_seconds)
 
+        async def loop_scheduler() -> None:
+            while not stop.is_set():
+                try:
+                    await schedule_housekeeping(ctx)
+                except Exception:
+                    log.exception("scheduler error")
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), 600)
+
         log.info("worker started (concurrency=%d)", concurrency)
-        await asyncio.gather(*(loop_worker(i) for i in range(concurrency)))
+        await asyncio.gather(loop_scheduler(), *(loop_worker(i) for i in range(concurrency)))
     await engine.dispose()
     log.info("worker stopped")
 

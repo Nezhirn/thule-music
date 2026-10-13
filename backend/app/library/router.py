@@ -3,22 +3,24 @@ import enum
 import re
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, BinaryIO
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
 from app.config import AUDIO_EXTENSIONS
 from app.deps import AdminUser, CurrentUser, SessionDep, SettingsDep
+from app.errors import ApiError, ErrorCode
 from app.jobs.models import Job, JobStatus
 from app.jobs.queue import enqueue
 from app.library.models import Album, Artist, Track
 from app.library.queries import (
     ALBUM_LOAD,
     TRACK_ORDER,
-    album_out,
+    albums_out,
     artists_out,
     contains,
     track_select,
@@ -40,14 +42,10 @@ class AlbumSort(enum.StrEnum):
     by_year = "year"
 
 
-def _not_found(what: str) -> HTTPException:
-    return HTTPException(status.HTTP_404_NOT_FOUND, f"{what} not found")
-
-
 @router.get("/artists", response_model=Page[ArtistOut])
 async def list_artists(
     session: SessionDep,
-    _: CurrentUser,
+    user: CurrentUser,
     limit: Limit = 50,
     offset: Offset = 0,
     q: str | None = None,
@@ -59,14 +57,16 @@ async def list_artists(
     artists = (
         await session.scalars(query.order_by(Artist.name_key).limit(limit).offset(offset))
     ).all()
-    return Page(items=await artists_out(session, artists), total=total, limit=limit, offset=offset)
+    return Page(
+        items=await artists_out(session, user.id, artists), total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/artists/{artist_id}", response_model=ArtistDetail)
 async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> ArtistDetail:
     artist = await session.get(Artist, artist_id)
     if artist is None:
-        raise _not_found("Artist")
+        raise ApiError(ErrorCode.artist_not_found)
     albums = (
         await session.scalars(
             select(Album)
@@ -89,10 +89,10 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
         )
     ).all()
 
-    (base,) = await artists_out(session, [artist])
+    (base,) = await artists_out(session, user.id, [artist])
     return ArtistDetail(
         **base.model_dump(),
-        albums=[album_out(a) for a in albums],
+        albums=await albums_out(session, user.id, albums),
         top_tracks=await tracks_out(session, user.id, top),
     )
 
@@ -100,7 +100,7 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
 @router.get("/albums", response_model=Page[AlbumOut])
 async def list_albums(
     session: SessionDep,
-    _: CurrentUser,
+    user: CurrentUser,
     limit: Limit = 50,
     offset: Offset = 0,
     sort: AlbumSort = AlbumSort.by_added,
@@ -123,21 +123,23 @@ async def list_albums(
             query.options(*ALBUM_LOAD).order_by(*order).limit(limit).offset(offset)
         )
     ).all()
-    return Page(items=[album_out(a) for a in albums], total=total, limit=limit, offset=offset)
+    return Page(
+        items=await albums_out(session, user.id, albums), total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/albums/{album_id}", response_model=AlbumDetail)
 async def get_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> AlbumDetail:
     album = await session.scalar(select(Album).where(Album.id == album_id).options(*ALBUM_LOAD))
     if album is None:
-        raise _not_found("Album")
+        raise ApiError(ErrorCode.album_not_found)
     tracks = (
         await session.scalars(
             track_select().where(Track.album_id == album_id).order_by(*TRACK_ORDER)
         )
     ).all()
     return AlbumDetail(
-        **album_out(album).model_dump(),
+        **(await albums_out(session, user.id, [album]))[0].model_dump(),
         duration_ms=sum(t.duration_ms for t in tracks),
         tracks=await tracks_out(session, user.id, tracks),
     )
@@ -165,7 +167,7 @@ async def list_tracks(
 async def get_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> TrackOut:
     track = await session.scalar(track_select().where(Track.id == track_id))
     if track is None:
-        raise _not_found("Track")
+        raise ApiError(ErrorCode.track_not_found)
     (out,) = await tracks_out(session, user.id, [track])
     return out
 
@@ -184,12 +186,27 @@ class JobOut(BaseModel):
     error: str | None
 
 
+class JobCounts(BaseModel):
+    queued: int = 0
+    running: int = 0
+    done: int = 0
+    failed: int = 0
+
+
+class JobSummary(BaseModel):
+    # Per job kind: scan_library, import_track, transcode, fetch_lyrics, ...
+    kinds: dict[str, JobCounts]
+    # Work left over all kinds (queued + running); 0 when the library is up to date.
+    pending: int
+    failed: int
+
+
 class UploadResult(BaseModel):
     path: str
 
 
 @admin_router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
-async def scan(session: SessionDep, _: AdminUser) -> dict[str, str]:
+async def start_scan(session: SessionDep, _: AdminUser) -> dict[str, str]:
     await enqueue(session, "scan_library", dedupe_key="scan")
     await session.commit()
     return {"status": "queued"}
@@ -227,7 +244,7 @@ def _save_upload(src: BinaryIO, directory: Path, name: str) -> Path:
 @admin_router.post(
     "/uploads", response_model=list[UploadResult], status_code=status.HTTP_202_ACCEPTED
 )
-async def upload(
+async def upload_files(
     files: list[UploadFile], session: SessionDep, settings: SettingsDep, _: AdminUser
 ) -> list[UploadResult]:
     """Saves audio files into `<library>/uploads/` and queues them for import."""
@@ -235,9 +252,7 @@ async def upload(
     # Validate the whole batch first so a rejected request leaves nothing on disk.
     for file, name in zip(files, names, strict=True):
         if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
-            raise HTTPException(
-                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Not an audio file: {file.filename}"
-            )
+            raise ApiError(ErrorCode.not_an_audio_file, f"Not an audio file: {file.filename}")
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
     results = []
     for file, name in zip(files, names, strict=True):
@@ -260,3 +275,22 @@ async def list_jobs(
     if status_filter is not None:
         query = query.where(Job.status == status_filter)
     return list(await session.scalars(query))
+
+
+@admin_router.get("/jobs/summary", response_model=JobSummary)
+async def get_job_summary(
+    session: SessionDep, _: AdminUser, since: datetime | None = None
+) -> JobSummary:
+    """Progress of background work, for a scan/import indicator. `since` counts only jobs
+    created after that moment (e.g. when the client started a scan)."""
+    query = select(Job.kind, Job.status, func.count()).group_by(Job.kind, Job.status)
+    if since is not None:
+        query = query.where(Job.created_at >= since)
+    kinds: dict[str, JobCounts] = {}
+    for kind, job_status, count in await session.execute(query):
+        setattr(kinds.setdefault(kind, JobCounts()), job_status.value, count)
+    return JobSummary(
+        kinds=kinds,
+        pending=sum(c.queued + c.running for c in kinds.values()),
+        failed=sum(c.failed for c in kinds.values()),
+    )
