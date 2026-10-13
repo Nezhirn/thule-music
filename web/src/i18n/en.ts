@@ -1,0 +1,94 @@
+import type { Schemas } from "../api/base";
+import { plural } from "./plural";
+
+const minutes = (n: number) => plural("en", n, { one: "# minute", other: "# minutes" });
+
+export const en = {
+  languageName: "English",
+  common: {
+    loading: "Loading…",
+    retry: "Try again",
+    unreachable: "Can't reach the server. Check the connection and try again.",
+    optional: "optional",
+    language: "Language",
+  },
+  auth: {
+    username: "Username",
+    password: "Password",
+    signIn: {
+      title: "Sign in",
+      submit: "Sign in",
+      submitting: "Signing in…",
+    },
+    setup: {
+      title: "Welcome to Thule",
+      lead: "This server has no accounts yet. Create the administrator account to get started.",
+      displayName: "Your name",
+      confirmPassword: "Repeat password",
+      submit: "Create account",
+      submitting: "Creating account…",
+      alreadyDone: "The server is already set up. Sign in with your account.",
+    },
+    validation: {
+      required: "Fill in this field",
+      usernameLength: "From 2 to 64 characters",
+      usernameChars: "Only Latin letters, digits, dots, hyphens and underscores",
+      passwordLength: (min: number) => `At least ${min} characters`,
+      passwordsDiffer: "Passwords don't match",
+    },
+    tryAgainIn: (seconds: number) =>
+      `Too many failed attempts. Try again in ${minutes(Math.max(1, Math.ceil(seconds / 60)))}.`,
+    ended: {
+      "signed-out": "You signed out.",
+      expired: "Your session has expired. Sign in again.",
+      revoked: "For your safety you were signed out on all devices. Sign in again.",
+    },
+    signOut: "Sign out",
+    signingOut: "Signing out…",
+    signedInAs: "Signed in as",
+    admin: "Administrator",
+  },
+  home: {
+    comingSoon: "The library, the player and settings arrive in the next stages.",
+  },
+  errors: {
+    bad_request: "The request is invalid.",
+    forbidden: "You don't have access to this.",
+    not_found: "Not found.",
+    method_not_allowed: "This action is not supported.",
+    validation_error: "Check the entered data.",
+    http_error: "Something went wrong on the server.",
+    not_authenticated: "Sign in to continue.",
+    invalid_token: "Your session has expired. Sign in again.",
+    admin_only: "Only an administrator can do this.",
+    registration_closed: "Only an administrator can create accounts.",
+    username_taken: "This username is already taken.",
+    invalid_credentials: "Wrong username or password.",
+    too_many_login_attempts: "Too many failed attempts. Try again later.",
+    invalid_refresh_token: "Your session has ended. Sign in again.",
+    refresh_token_rotated: "Your session was renewed in another tab. Try again.",
+    refresh_token_reused: "For your safety you were signed out on all devices. Sign in again.",
+    refresh_token_expired: "Your session has expired. Sign in again.",
+    user_not_found: "User not found.",
+    cannot_delete_self: "You can't delete your own account.",
+    cannot_change_own_role: "You can't change your own role.",
+    wrong_password: "The current password is wrong.",
+    not_an_image: "This file is not a supported image.",
+    image_too_large: "The image is too large.",
+    artist_not_found: "Artist not found.",
+    album_not_found: "Album not found.",
+    track_not_found: "Track not found.",
+    not_an_audio_file: "This file is not a supported audio format.",
+    invalid_stream_signature: "The playback link has expired.",
+    audio_file_missing: "The audio file is missing on the server.",
+    cover_not_found: "Cover not found.",
+    cover_file_missing: "The cover file is missing on the server.",
+    invalid_cover_size: "Unsupported cover size.",
+    lyrics_not_found: "No lyrics for this track.",
+    playlist_not_found: "Playlist not found.",
+    playlist_item_not_found: "This track is no longer in the playlist.",
+    unknown_tracks: "Some tracks no longer exist.",
+  } satisfies Record<Schemas["ErrorCode"], string>,
+};
+
+export type Messages = typeof en;

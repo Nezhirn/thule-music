@@ -1,10 +1,9 @@
 import { expect, test as setup } from "@playwright/test";
-import { ADMIN, apiClient, login } from "./api";
+import { apiClient, login } from "./api";
 
-setup("create the admin and import the library", async ({ baseURL }) => {
-  const anonymous = apiClient(baseURL!);
-  const { response } = await anonymous.POST("/api/v1/auth/register", { body: ADMIN });
-  expect(response.status).toBe(201);
+setup("import the library", async ({ baseURL }) => {
+  const { data: status } = await apiClient(baseURL!).GET("/api/v1/auth/setup");
+  expect(status?.needs_setup).toBe(false); // the first-run test created the admin
 
   const api = await login(baseURL!);
   expect((await api.POST("/api/v1/library/scan")).response.status).toBe(202);

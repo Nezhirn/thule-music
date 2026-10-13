@@ -1,0 +1,88 @@
+/* Design tokens. Stage 2 turns the accent, the blur and the cover tint into user settings. */
+:root {
+  color-scheme: dark;
+  --font:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+
+  --bg: #0d0e12;
+  --text: #f4f4f7;
+  --text-muted: #b7b8c0;
+  --danger: #ff7a88;
+
+  /* Accent: a fill under white text (4.8:1), and a lighter shade for text on dark (7.6:1). */
+  --accent: #6e56f8;
+  --accent-hover: #7d67ff;
+  --accent-on: #ffffff;
+  --accent-text: #a594ff;
+
+  /* Frosted glass; opaque where blur is unavailable or unwanted (see below). */
+  --glass: rgb(28 29 36 / 0.55);
+  --glass-border: rgb(255 255 255 / 0.12);
+  --glass-blur: blur(28px) saturate(150%);
+  --field: rgb(255 255 255 / 0.06);
+  --field-border: rgb(255 255 255 / 0.16);
+
+  --radius-lg: 22px;
+  --radius-md: 12px;
+  --shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass: rgb(28 29 36 / 0.96);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: rgb(28 29 36 / 0.96);
+    --glass-blur: none;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

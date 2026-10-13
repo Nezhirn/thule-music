@@ -1,0 +1,21 @@
+.splash {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.logo {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo {
+    animation: none;
+  }
+}
