@@ -124,6 +124,26 @@ test("queues tracks next and last, and keeps the queue over a reload", async ({ 
   await expect.poll(() => position(bar(page))).toBeGreaterThan(at + 1);
 });
 
+test("a reload while a track starts keeps the place in the queue", async ({ page }) => {
+  await openAlbum(page, "Northern Lights");
+  // The stream URL is slow to come, and the page is reloaded before it does: the dropped
+  // request must not count as a track that can't be played.
+  let asked!: () => void;
+  const asking = new Promise<void>((resolve) => (asked = resolve));
+  await page.route("**/stream-url?*", async (route) => {
+    asked();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.continue().catch(() => {});
+  });
+  await page.getByRole("button", { name: "Play Northern Lights" }).click();
+  await asking;
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.reload();
+  await expect(bar(page).getByRole("link", { name: "Polar Drift" })).toBeVisible();
+  await bar(page).getByRole("button", { name: "Play", exact: true }).click();
+  await expect.poll(() => position(bar(page))).toBeGreaterThan(0);
+});
+
 test("a track listened to counts as played, and its album shows on the home page", async ({
   page,
   baseURL,

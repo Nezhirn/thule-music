@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Schemas } from "../api/client";
+import { ApiFailure } from "../api/errors";
 import type { Track } from "../catalog/queries";
 import * as queue from "./queue";
 import { EMPTY_QUEUE, currentItem, type Queue, type QueueItem } from "./queue";
@@ -195,8 +196,12 @@ export function createPlayer(deps: Deps): Player {
     let url: StreamUrl;
     try {
       url = await deps.streamUrl(item.track.id, quality);
-    } catch {
-      if (id === loads) fail(item);
+    } catch (error) {
+      if (id !== loads) return;
+      // No answer (offline, or the page being reloaded or left) is not the track's fault:
+      // the player stops at it rather than skip through the queue.
+      if (error instanceof ApiFailure) fail(item);
+      else stall(item);
       return;
     }
     if (id !== loads) return;
@@ -263,6 +268,12 @@ export function createPlayer(deps: Deps): Player {
       loaded = null;
       set({ playing: false });
     }
+  }
+
+  /** Stops at `item`, which couldn't be loaded for now; playing again retries it. */
+  function stall(item: QueueItem) {
+    loaded = null;
+    set({ playing: false, buffering: false, failed: item.track });
   }
 
   function onError() {

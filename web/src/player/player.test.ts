@@ -1,3 +1,4 @@
+import { ApiFailure } from "../api/errors";
 import type { Track } from "../catalog/queries";
 import { FakeAudio } from "../test/audio";
 import { album, track, WIND } from "../test/catalog";
@@ -214,7 +215,10 @@ test("a broken stream is renewed once, then skipped", async () => {
 
 test("gives up after three tracks in a row fail", async () => {
   const { player, state, replaceStreamUrl } = setup();
-  replaceStreamUrl(() => Promise.reject(new TypeError("Failed to fetch")));
+  const missing = { code: "audio_file_missing", detail: "Audio file is missing on disk" };
+  replaceStreamUrl(() =>
+    Promise.reject(new ApiFailure(new Response(null, { status: 404 }), missing)),
+  );
   player.play([...TRACKS, A]);
   await settle();
   await settle();
@@ -222,6 +226,36 @@ test("gives up after three tracks in a row fail", async () => {
   expect(currentItem(state().queue)?.track.id).toBe(C.id);
   expect(state().playing).toBe(false);
   expect(state().failed?.id).toBe(C.id);
+});
+
+test("without an answer from the server it stops at the track instead of skipping", async () => {
+  // Offline, or the page reloaded while the stream URL was on its way: the queue must not
+  // move on, or the reloaded page would come back at the next track.
+  const { audio, player, state, requests, playing, replaceStreamUrl } = setup();
+  const answer = (trackId: string) => {
+    requests.push({ track: trackId, quality: "high" });
+    return Promise.reject(new TypeError("Failed to fetch"));
+  };
+  replaceStreamUrl(answer);
+  player.play(TRACKS);
+  await settle();
+  expect(playing()).toBe("A");
+  expect(state().playing).toBe(false);
+  expect(state().failed?.id).toBe(A.id);
+  expect(requests).toHaveLength(1);
+
+  // Back online, playing again asks again.
+  replaceStreamUrl(async (trackId) => ({
+    url: `/stream/${trackId}`,
+    quality: "high",
+    codec: "opus",
+    bitrate: 160,
+    expires_at: new Date(Date.parse("2026-10-13T16:00:00Z")).toISOString(),
+  }));
+  player.toggle();
+  await settle();
+  expect(audio.src).toContain(`/stream/${A.id}`);
+  expect(audio.paused).toBe(false);
 });
 
 test("renews an expired stream URL before playing on", async () => {
