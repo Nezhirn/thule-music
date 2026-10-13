@@ -34,7 +34,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await engine.dispose()
 
-    app = FastAPI(title="Thule Music", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Thule Music",
+        version="0.1.0",
+        lifespan=lifespan,
+        # operationId = the endpoint function's name ("list_albums"), for generated clients.
+        generate_unique_id_function=lambda route: route.name,
+    )
     app.state.settings = settings
     install_error_handlers(app)
     app.add_middleware(

@@ -229,7 +229,7 @@ async def delete_playlist(playlist_id: uuid.UUID, session: SessionDep, user: Cur
 
 
 @router.post("/{playlist_id}/tracks", response_model=PlaylistDetail)
-async def add_tracks(
+async def add_playlist_tracks(
     playlist_id: uuid.UUID, body: AddTracksIn, session: SessionDep, user: CurrentUser
 ):
     playlist = await _own_playlist(session, user, playlist_id)
@@ -253,7 +253,7 @@ async def add_tracks(
 
 
 @router.delete("/{playlist_id}/tracks/{item_id}", response_model=PlaylistDetail)
-async def remove_item(
+async def remove_playlist_item(
     playlist_id: uuid.UUID, item_id: uuid.UUID, session: SessionDep, user: CurrentUser
 ):
     playlist = await _own_playlist(session, user, playlist_id)
@@ -269,7 +269,9 @@ async def remove_item(
 
 
 @router.post("/{playlist_id}/move", response_model=PlaylistDetail)
-async def move_item(playlist_id: uuid.UUID, body: MoveIn, session: SessionDep, user: CurrentUser):
+async def move_playlist_item(
+    playlist_id: uuid.UUID, body: MoveIn, session: SessionDep, user: CurrentUser
+):
     playlist = await _own_playlist(session, user, playlist_id)
     ordered = await _item_ids(session, playlist.id)
     if body.item_id not in ordered:

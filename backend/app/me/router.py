@@ -35,7 +35,7 @@ async def _ensure_track(session, track_id: uuid.UUID) -> None:
 
 
 @router.put("/likes/tracks/{track_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def like(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+async def like_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
     await _ensure_track(session, track_id)
     await session.execute(
         insert(TrackLike).values(user_id=user.id, track_id=track_id).on_conflict_do_nothing()
@@ -44,7 +44,7 @@ async def like(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> N
 
 
 @router.delete("/likes/tracks/{track_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unlike(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+async def unlike_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
     await session.execute(
         delete(TrackLike).where(TrackLike.user_id == user.id, TrackLike.track_id == track_id)
     )
@@ -52,7 +52,7 @@ async def unlike(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) ->
 
 
 @router.get("/likes/tracks", response_model=Page[TrackOut])
-async def liked_tracks(
+async def list_liked_tracks(
     session: SessionDep,
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
@@ -97,7 +97,7 @@ async def record_play(body: PlayIn, session: SessionDep, user: CurrentUser) -> N
 
 
 @router.get("/recent", response_model=list[RecentTrack])
-async def recent(
+async def list_recent_tracks(
     session: SessionDep,
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,

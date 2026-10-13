@@ -40,3 +40,10 @@ async def test_openapi_documents_the_error_shape(client):
     assert "422" not in login
     codes = spec["components"]["schemas"]["ErrorCode"]["enum"]
     assert {"invalid_credentials", "track_not_found", "validation_error"} <= set(codes)
+
+
+async def test_openapi_operation_ids_are_function_names(client):
+    spec = (await client.get("http://test/openapi.json")).json()
+    ids = [op["operationId"] for path in spec["paths"].values() for op in path.values()]
+    assert len(ids) == len(set(ids))
+    assert {"login", "list_albums", "get_stream_url", "stream_track", "health"} <= set(ids)

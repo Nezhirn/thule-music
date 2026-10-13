@@ -116,7 +116,7 @@ async def _for_you(session: AsyncSession, user_id: uuid.UUID, limit: int) -> lis
 
 
 @router.get("/home", response_model=HomeOut)
-async def home(
+async def get_home(
     session: SessionDep,
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=50)] = 12,

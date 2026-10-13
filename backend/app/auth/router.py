@@ -75,7 +75,7 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(body: RefreshIn, session: SessionDep, settings: SettingsDep) -> TokenPair:
+async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: SettingsDep) -> TokenPair:
     """Rotates the refresh token. Presenting an already-rotated token is treated as
     theft: every session of that user is revoked."""
     token = await session.scalar(
@@ -119,7 +119,7 @@ async def logout(body: RefreshIn, session: SessionDep) -> None:
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: CurrentUser) -> User:
+async def get_me(user: CurrentUser) -> User:
     return user
 
 

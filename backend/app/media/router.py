@@ -44,7 +44,7 @@ class StreamUrl(BaseModel):
 
 
 @router.get("/tracks/{track_id}/stream-url", response_model=StreamUrl)
-async def stream_url(
+async def get_stream_url(
     track_id: uuid.UUID,
     request: Request,
     session: SessionDep,
@@ -70,7 +70,7 @@ async def stream_url(
     expires, sig = signing.sign(
         settings.secret_key, track_id, quality.value, settings.stream_url_ttl_seconds
     )
-    url = request.url_for("stream", track_id=track_id).include_query_params(
+    url = request.url_for("stream_track", track_id=track_id).include_query_params(
         quality=quality.value, exp=expires, sig=sig
     )
     return StreamUrl(
@@ -80,8 +80,8 @@ async def stream_url(
     )
 
 
-@router.get("/tracks/{track_id}/stream", name="stream", response_class=FileResponse)
-async def stream(
+@router.get("/tracks/{track_id}/stream", response_class=FileResponse)
+async def stream_track(
     track_id: uuid.UUID,
     session: SessionDep,
     settings: SettingsDep,

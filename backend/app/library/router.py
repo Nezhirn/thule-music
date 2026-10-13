@@ -186,7 +186,7 @@ class UploadResult(BaseModel):
 
 
 @admin_router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
-async def scan(session: SessionDep, _: AdminUser) -> dict[str, str]:
+async def start_scan(session: SessionDep, _: AdminUser) -> dict[str, str]:
     await enqueue(session, "scan_library", dedupe_key="scan")
     await session.commit()
     return {"status": "queued"}
@@ -224,7 +224,7 @@ def _save_upload(src: BinaryIO, directory: Path, name: str) -> Path:
 @admin_router.post(
     "/uploads", response_model=list[UploadResult], status_code=status.HTTP_202_ACCEPTED
 )
-async def upload(
+async def upload_files(
     files: list[UploadFile], session: SessionDep, settings: SettingsDep, _: AdminUser
 ) -> list[UploadResult]:
     """Saves audio files into `<library>/uploads/` and queues them for import."""
