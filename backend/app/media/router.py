@@ -36,6 +36,7 @@ class Quality(enum.StrEnum):
 
 
 class StreamUrl(BaseModel):
+    # Path + query, without scheme and host: resolve it against the server address.
     url: str
     quality: Quality
     expires_at: datetime
@@ -50,7 +51,9 @@ async def stream_url(
     _: CurrentUser,
     quality: Quality = Quality.high,
 ) -> StreamUrl:
-    """Returns a signed URL that plays without an Authorization header.
+    """Returns a signed URL that plays without an Authorization header. It is relative to
+    the server (`/api/v1/tracks/...`): an absolute one would be built from the request's
+    Host and scheme, which a reverse proxy may not pass through.
 
     The URL is pinned to a rendition that exists right now: if the requested transcode is
     not ready yet, it points at the original. Otherwise a transcode finishing mid-playback
@@ -69,7 +72,11 @@ async def stream_url(
     url = request.url_for("stream", track_id=track_id).include_query_params(
         quality=quality.value, exp=expires, sig=sig
     )
-    return StreamUrl(url=str(url), quality=quality, expires_at=datetime.fromtimestamp(expires, UTC))
+    return StreamUrl(
+        url=f"{url.path}?{url.query}",
+        quality=quality,
+        expires_at=datetime.fromtimestamp(expires, UTC),
+    )
 
 
 @router.get("/tracks/{track_id}/stream", name="stream", response_class=FileResponse)

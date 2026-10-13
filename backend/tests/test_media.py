@@ -1,5 +1,3 @@
-from urllib.parse import urlsplit
-
 from sqlalchemy import delete
 
 from app.library.models import TrackFile
@@ -13,8 +11,8 @@ async def one_track(client, admin, make_audio, run_jobs) -> dict:
 
 
 def path_and_query(url: str) -> str:
-    parts = urlsplit(url)
-    return parts.path.removeprefix("/api/v1") + "?" + parts.query
+    assert url.startswith("/api/v1/tracks/"), url  # relative to the server, no host
+    return url.removeprefix("/api/v1")
 
 
 async def test_stream_original_supports_range(client, admin, make_audio, run_jobs, settings):
