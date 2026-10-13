@@ -8,12 +8,14 @@ export function PlaylistCover({
   ids,
   sizes,
   small,
+  className,
 }: {
   ids: string[];
   sizes: string;
   small?: boolean;
+  className?: string;
 }) {
-  const size = small ? styles.small : "";
+  const size = [small && styles.small, className].filter(Boolean).join(" ");
   if (ids.length === 0) {
     return (
       <span className={`${styles.blank} ${size}`}>

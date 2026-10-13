@@ -15,6 +15,11 @@
   width: max-content;
 }
 
+.wrap {
+  flex-wrap: wrap;
+  width: auto;
+}
+
 .genre {
   display: inline-flex;
   align-items: center;

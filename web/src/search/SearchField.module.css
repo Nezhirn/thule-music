@@ -1,0 +1,73 @@
+.form {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 560px;
+  margin-bottom: 24px;
+}
+
+.icon {
+  position: absolute;
+  left: 16px;
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.busy {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy {
+    animation-duration: 2.4s;
+  }
+}
+
+.input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 48px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--field);
+  font-size: var(--text-md);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* The field has its own clear button. */
+.input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.clear {
+  position: absolute;
+  right: 8px;
+}
+
+@media (max-width: 899px) {
+  .form {
+    max-width: none;
+    margin-bottom: 20px;
+  }
+}

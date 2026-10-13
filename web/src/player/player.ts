@@ -10,7 +10,7 @@ export type Repeat = "off" | "all" | "one";
 
 /** What the queue was started from, to show its play button as playing. */
 export interface Source {
-  type: "album" | "artist" | "tracks" | "liked" | "playlist" | "history";
+  type: "album" | "artist" | "tracks" | "liked" | "playlist" | "history" | "search" | "track";
   id: string;
 }
 

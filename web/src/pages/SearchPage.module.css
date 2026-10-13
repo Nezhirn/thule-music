@@ -1,0 +1,50 @@
+/* While the results of the query before show, until the new ones come. */
+.results {
+  container-type: inline-size;
+  transition: opacity 0.15s;
+}
+
+.results[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+/* The top result and the first tracks: side by side where there is room. */
+.lead {
+  display: grid;
+  gap: 32px;
+  margin-bottom: 36px;
+}
+
+@container (min-width: 900px) {
+  .lead {
+    grid-template-columns: minmax(300px, 2fr) 3fr;
+    align-items: start;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.more {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.more:hover {
+  color: var(--text);
+}

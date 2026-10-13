@@ -4,6 +4,7 @@ import { useMe } from "../account/me";
 import { useI18n } from "../i18n";
 import { AddToPlaylistProvider } from "../playlists/AddToPlaylist";
 import { useFailureNotice, useSpaceToPlay } from "../player/hooks";
+import { useSearchShortcut } from "../search/shortcut";
 import { Backdrop } from "../theme/Backdrop";
 import { Toast } from "../ui/Toast";
 import styles from "./AppShell.module.css";
@@ -35,14 +36,18 @@ export function AppShell() {
   const closePlayer = useCallback(() => setPlayerOpen(false), []);
   useSpaceToPlay();
   useFailureNotice();
+  useSearchShortcut();
 
   // A new page starts at its top, and keyboard and screen reader users land on it, as on a
-  // full page load (not on the first one: focus stays where the browser puts it).
+  // full page load (not on the first one: focus stays where the browser puts it), unless
+  // the page put them in a field of its own (search).
   useEffect(() => {
     if (visited.current === pathname) return;
     visited.current = pathname;
     if (!main.current) return;
     main.current.scrollTop = 0;
+    const focused = document.activeElement;
+    if (focused instanceof HTMLInputElement && main.current.contains(focused)) return;
     main.current.focus({ preventScroll: true });
   }, [pathname]);
 

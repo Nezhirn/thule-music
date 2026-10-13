@@ -1,9 +1,10 @@
-import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, type CSSProperties } from "react";
+import { ChevronDown, MessageSquareQuote } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router";
 import { Cover } from "../catalog/Cover";
 import { useI18n } from "../i18n";
 import { LikeButton } from "../likes/LikeButton";
+import { Lyrics } from "../lyrics/Lyrics";
 import { selectTrack, usePlayer } from "../player/context";
 import { Controls } from "../player/Controls";
 import { Progress } from "../player/Progress";
@@ -21,6 +22,8 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
   const track = usePlayer(selectTrack);
   const { pathname } = useLocation();
   const shown = open && track !== null;
+  // The lyrics in place of the cover.
+  const [lyrics, setLyrics] = useState(false);
 
   useEffect(() => {
     const element = dialog.current;
@@ -54,13 +57,31 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
               {t.player.nowPlaying}
             </h2>
           </div>
-          <Cover
-            id={track.album.cover_id}
-            sizes="(max-width: 899px) 86vw, 420px"
-            className={styles.cover}
-          />
+          {lyrics ? (
+            // Scrolls on its own: in the tab order, so keyboards scroll it too.
+            <section
+              aria-label={t.lyrics.title}
+              tabIndex={0}
+              className={`${styles.cover} ${styles.lyrics}`}
+            >
+              <Lyrics key={track.id} track={track} size="small" />
+            </section>
+          ) : (
+            <Cover
+              id={track.album.cover_id}
+              sizes="(max-width: 899px) 86vw, 420px"
+              className={styles.cover}
+            />
+          )}
           <div className={styles.info}>
             <TrackInfo track={track} large />
+            <IconButton
+              icon={MessageSquareQuote}
+              label={t.lyrics.button}
+              aria-pressed={lyrics}
+              className={styles.toggle}
+              onClick={() => setLyrics(!lyrics)}
+            />
             <LikeButton track={track} size="md" />
           </div>
           <Progress />

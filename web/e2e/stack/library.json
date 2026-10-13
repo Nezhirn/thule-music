@@ -11,8 +11,14 @@
         "color": "#1e8c8c"
       },
       "tracks": [
-        "Polar Drift",
-        "Glass Sky",
+        {
+          "title": "Polar Drift",
+          "lrc": "[00:01.00]Snow on the rails\n[00:03.00]Lights in the north\n[00:05.00]\n[00:06.00]We drift until morning"
+        },
+        {
+          "title": "Glass Sky",
+          "lyrics": "Under a glass sky\nNothing to hide"
+        },
         "Slow Aurora",
         {
           "title": "Shared Sky",

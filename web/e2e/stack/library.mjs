@@ -11,8 +11,9 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 /**
- * A track is its title, or its title and its own artist (a guest, a compilation's artists).
- * @typedef {string | { title: string, artist: string }} TrackSpec
+ * A track is its title, or its title with its own artist (a guest, a compilation's artists)
+ * and lyrics: in a .lrc file beside it (`lrc`) or in its tags (`lyrics`).
+ * @typedef {string | { title: string, artist?: string, lrc?: string, lyrics?: string }} TrackSpec
  * @typedef {{
  *   artist: string, title: string, year: number, genre: string,
  *   format: keyof typeof CODECS,
@@ -60,7 +61,11 @@ async function makeCover(path, color) {
  */
 async function makeTrack(path, album, index, coverPath) {
   const spec = /** @type {TrackSpec} */ (album.tracks[index]);
-  const { title, artist } = typeof spec === "string" ? { title: spec, artist: album.artist } : spec;
+  const {
+    title,
+    artist = album.artist,
+    lyrics,
+  } = typeof spec === "string" ? { title: spec } : spec;
   const { disc, number, perDisc } = position(album, index);
   const input = [
     "-f",
@@ -91,6 +96,7 @@ async function makeTrack(path, album, index, coverPath) {
     genre: album.genre,
     track: `${number}/${perDisc}`,
     ...(album.discs ? { disc: `${disc}/${album.discs}` } : {}),
+    ...(lyrics ? { lyrics } : {}),
   };
   const metadata = Object.entries(tags).flatMap(([key, value]) => ["-metadata", `${key}=${value}`]);
   await ffmpeg([...input, ...picture, ...CODECS[album.format], ...metadata, path]);
@@ -129,8 +135,11 @@ export async function generateLibrary(root) {
           const { disc, number } = position(album, i);
           const folder = album.discs ? join(dir, `CD${disc}`) : dir;
           await mkdir(folder, { recursive: true });
-          const name = `${String(number).padStart(2, "0")} ${title}.${album.format}`;
-          return makeTrack(join(folder, name), album, i, embedded);
+          const name = `${String(number).padStart(2, "0")} ${title}`;
+          if (typeof spec !== "string" && spec.lrc) {
+            await writeFile(join(folder, `${name}.lrc`), spec.lrc);
+          }
+          return makeTrack(join(folder, `${name}.${album.format}`), album, i, embedded);
         }),
       );
     }),

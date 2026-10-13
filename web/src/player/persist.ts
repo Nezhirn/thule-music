@@ -20,6 +20,8 @@ const SOURCES: readonly Source["type"][] = [
   "liked",
   "playlist",
   "history",
+  "search",
+  "track",
 ];
 
 function isSource(value: Partial<Source> | null | undefined): value is Source {

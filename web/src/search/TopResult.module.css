@@ -1,0 +1,125 @@
+/* Its width decides the layout: the picture above the name, or beside it in a wide card. */
+.frame {
+  container-type: inline-size;
+}
+
+/* The name's link covers the card (::after): one click target and one tab stop; the artist
+   links and the play button sit above it. */
+.top {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 236px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--hover);
+}
+
+.art {
+  width: 112px;
+  margin-bottom: 16px;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.35);
+}
+
+.name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-2xl);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.name:focus-visible {
+  outline: none;
+}
+
+.name:focus-visible::after {
+  outline: 2px solid var(--accent-text);
+}
+
+.meta {
+  min-width: 0;
+  padding-right: 64px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kind {
+  font-weight: 600;
+}
+
+/* Above the card's link, at least 24px tall (WCAG 2.5.8). */
+.link,
+.artists a {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  min-height: 24px;
+  line-height: 24px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.link:hover,
+.artists a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.play {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+}
+
+@container (min-width: 560px) {
+  .top {
+    grid-template-columns: 112px minmax(0, 1fr);
+    grid-template-rows: 1fr auto auto 1fr;
+    column-gap: 24px;
+    min-height: 0;
+    padding-right: 96px;
+  }
+
+  .art {
+    grid-row: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .name {
+    grid-row: 2;
+  }
+
+  .meta {
+    grid-row: 3;
+    padding-right: 0;
+  }
+
+  .play {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+  }
+}

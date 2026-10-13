@@ -176,6 +176,55 @@ export const ru: Messages = {
     emptyText: "Здесь по дням будет всё, что вы слушаете.",
     failed: (reason: string) => `Не удалось очистить историю. ${reason}`,
   },
+  search: {
+    field: "Поиск по библиотеке",
+    placeholder: "Артисты, альбомы, треки",
+    clear: "Очистить поиск",
+    show: "Показать",
+    all: "Всё",
+    kinds: { tracks: "Треки", albums: "Альбомы", artists: "Артисты" },
+    playlists: "Плейлисты",
+    top: "Лучшее совпадение",
+    kind: { artist: "Артист", album: "Альбом", track: "Трек" },
+    browse: "Жанры",
+    found: (query: string, what: string) => `По запросу «${query}»: ${what}`,
+    artists: (n: number) =>
+      plural("ru", n, {
+        one: "# артист",
+        few: "# артиста",
+        many: "# артистов",
+        other: "# артиста",
+      }),
+    playlistsFound: (n: number) =>
+      plural("ru", n, {
+        one: "# плейлист",
+        few: "# плейлиста",
+        many: "# плейлистов",
+        other: "# плейлиста",
+      }),
+    nothing: (query: string) => `По запросу «${query}» ничего не нашлось`,
+    nothingText: "Проверьте написание или попробуйте другие слова.",
+    noKind: {
+      tracks: (query: string) => `Треков по запросу «${query}» нет`,
+      albums: (query: string) => `Альбомов по запросу «${query}» нет`,
+      artists: (query: string) => `Артистов по запросу «${query}» нет`,
+    },
+  },
+  lyrics: {
+    button: "Текст песни",
+    title: "Текст",
+    of: (title: string) => `Текст: ${title}`,
+    none: "У этого трека нет текста",
+    noneText: "Тексты берутся из файла .lrc или .txt рядом с треком, из его тегов или из LRCLIB.",
+    instrumental: "Инструментал",
+    instrumentalText: "В этом треке нет слов.",
+    source: {
+      sidecar: "Из файла рядом с треком",
+      embedded: "Из тегов трека",
+      lrclib: "Из LRCLIB",
+    },
+    nothingPlaying: "Включите трек, чтобы увидеть его текст.",
+  },
   home: {
     greeting: {
       morning: (name: string) => `Доброе утро, ${name}`,

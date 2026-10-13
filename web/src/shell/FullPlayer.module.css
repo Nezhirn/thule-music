@@ -53,6 +53,26 @@
   box-shadow: 0 24px 56px rgb(0 0 0 / 0.5);
 }
 
+/* In place of the cover, as big. */
+.lyrics {
+  aspect-ratio: 1;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-md);
+  background: rgb(0 0 0 / 0.25);
+  box-shadow: none;
+}
+
+.lyrics:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.toggle[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+
 .queue {
   display: grid;
   gap: 10px;

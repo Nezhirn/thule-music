@@ -2,6 +2,7 @@ import { ListMusic, Music } from "lucide-react";
 import { Cover } from "../catalog/Cover";
 import { useI18n } from "../i18n";
 import { LikeButton } from "../likes/LikeButton";
+import { LyricsButton } from "../lyrics/LyricsButton";
 import { selectTrack, usePlayer } from "../player/context";
 import { Controls } from "../player/Controls";
 import { Progress } from "../player/Progress";
@@ -46,6 +47,7 @@ export function PlayerBar({
         <Progress />
       </div>
       <div className={styles.side}>
+        <LyricsButton className={styles.toggle} />
         <IconButton
           id={QUEUE_TOGGLE}
           icon={ListMusic}
@@ -53,7 +55,7 @@ export function PlayerBar({
           size="sm"
           aria-expanded={queueOpen}
           aria-controls="now-playing"
-          className={styles.queue}
+          className={`${styles.toggle} ${styles.queue}`}
           onClick={onToggleQueue}
         />
         <Volume />

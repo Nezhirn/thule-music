@@ -13,8 +13,10 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { LikedPage } from "./pages/LikedPage";
+import { LyricsPage } from "./pages/LyricsPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { PlaylistPage } from "./pages/PlaylistPage";
+import { SearchPage } from "./pages/SearchPage";
 import { TracksPage } from "./pages/TracksPage";
 import { SettingsPage } from "./settings/SettingsPage";
 import { AppShell } from "./shell/AppShell";
@@ -31,7 +33,7 @@ export function AppRoutes() {
       <Route element={<RequireSession />}>
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
-          <Route path="search" element={<PlaceholderPage section="search" />} />
+          <Route path="search" element={<SearchPage />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="albums" element={<AlbumsPage />} />
           <Route path="albums/:id" element={<AlbumPage />} />
@@ -42,6 +44,7 @@ export function AppRoutes() {
           <Route path="favorites" element={<FavoritesPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="playlists/:id" element={<PlaylistPage />} />
+          <Route path="lyrics" element={<LyricsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="admin"
