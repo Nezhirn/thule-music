@@ -3,13 +3,14 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import Role, User
 from app.auth.security import decode_access_token
 from app.config import Settings
+from app.errors import ApiError, ErrorCode
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -27,10 +28,8 @@ SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-def _unauthorized(detail: str = "Not authenticated") -> HTTPException:
-    return HTTPException(
-        status.HTTP_401_UNAUTHORIZED, detail, headers={"WWW-Authenticate": "Bearer"}
-    )
+def _unauthorized(code: ErrorCode, detail: str | None = None) -> ApiError:
+    return ApiError(code, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
 async def get_optional_user(
@@ -44,22 +43,22 @@ async def get_optional_user(
         payload = decode_access_token(creds.credentials, settings.secret_key)
         user_id = uuid.UUID(payload["sub"])
     except (jwt.PyJWTError, ValueError) as exc:
-        raise _unauthorized("Invalid or expired token") from exc
+        raise _unauthorized(ErrorCode.invalid_token) from exc
     user = await session.get(User, user_id)
     if user is None:
-        raise _unauthorized("User no longer exists")
+        raise _unauthorized(ErrorCode.invalid_token, "User no longer exists")
     return user
 
 
 async def get_current_user(user: Annotated[User | None, Depends(get_optional_user)]) -> User:
     if user is None:
-        raise _unauthorized()
+        raise _unauthorized(ErrorCode.not_authenticated)
     return user
 
 
 async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
     if user.role != Role.admin:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin only")
+        raise ApiError(ErrorCode.admin_only)
     return user
 
 

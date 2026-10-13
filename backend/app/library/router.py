@@ -6,12 +6,13 @@ import uuid
 from pathlib import Path
 from typing import Annotated, BinaryIO
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
 from app.config import AUDIO_EXTENSIONS
 from app.deps import AdminUser, CurrentUser, SessionDep, SettingsDep
+from app.errors import ApiError, ErrorCode
 from app.jobs.models import Job, JobStatus
 from app.jobs.queue import enqueue
 from app.library.models import Album, Artist, Track
@@ -40,10 +41,6 @@ class AlbumSort(enum.StrEnum):
     by_year = "year"
 
 
-def _not_found(what: str) -> HTTPException:
-    return HTTPException(status.HTTP_404_NOT_FOUND, f"{what} not found")
-
-
 @router.get("/artists", response_model=Page[ArtistOut])
 async def list_artists(
     session: SessionDep,
@@ -66,7 +63,7 @@ async def list_artists(
 async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> ArtistDetail:
     artist = await session.get(Artist, artist_id)
     if artist is None:
-        raise _not_found("Artist")
+        raise ApiError(ErrorCode.artist_not_found)
     albums = (
         await session.scalars(
             select(Album)
@@ -130,7 +127,7 @@ async def list_albums(
 async def get_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> AlbumDetail:
     album = await session.scalar(select(Album).where(Album.id == album_id).options(*ALBUM_LOAD))
     if album is None:
-        raise _not_found("Album")
+        raise ApiError(ErrorCode.album_not_found)
     tracks = (
         await session.scalars(
             track_select().where(Track.album_id == album_id).order_by(*TRACK_ORDER)
@@ -165,7 +162,7 @@ async def list_tracks(
 async def get_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> TrackOut:
     track = await session.scalar(track_select().where(Track.id == track_id))
     if track is None:
-        raise _not_found("Track")
+        raise ApiError(ErrorCode.track_not_found)
     (out,) = await tracks_out(session, user.id, [track])
     return out
 
@@ -235,9 +232,7 @@ async def upload(
     # Validate the whole batch first so a rejected request leaves nothing on disk.
     for file, name in zip(files, names, strict=True):
         if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
-            raise HTTPException(
-                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Not an audio file: {file.filename}"
-            )
+            raise ApiError(ErrorCode.not_an_audio_file, f"Not an audio file: {file.filename}")
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
     results = []
     for file, name in zip(files, names, strict=True):

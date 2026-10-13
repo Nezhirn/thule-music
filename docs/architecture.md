@@ -55,6 +55,8 @@ POST /library/scan или /library/uploads
 
 Префикс `/api/v1`, интерактивная документация — `/docs`, схема — `/openapi.json`. OpenAPI — контракт для web-клиента (генерация TS-типов) и KMP-клиента.
 
+Ошибки — всегда `{"code": ..., "detail": ...}`. `code` — стабильный идентификатор из перечисления `ErrorCode` (`invalid_credentials`, `track_not_found`, …): по нему клиенты показывают переведённое сообщение. `detail` — английский текст для разработчика, а у ошибок валидации (`validation_error`, 422) — список полей с `loc` и `type`.
+
 ## Клиенты (следующие фазы)
 
 **Web (фаза 2):** React + Vite + TypeScript, TanStack Query, типы из OpenAPI, CSS `backdrop-filter` для стекла, `<audio>` + Media Session API.

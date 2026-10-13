@@ -10,6 +10,7 @@ from app.auth.router import users_router
 from app.config import Settings, get_settings
 from app.db import make_engine, make_sessionmaker
 from app.deps import SessionDep
+from app.errors import ERROR_RESPONSES, install_error_handlers
 from app.home.router import router as home_router
 from app.library.router import admin_router as library_admin_router
 from app.library.router import router as library_router
@@ -35,6 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Thule Music", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
+    install_error_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -43,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=["Content-Range", "Accept-Ranges", "X-Thule-Quality"],
     )
 
-    api = APIRouter(prefix=API_PREFIX)
+    api = APIRouter(prefix=API_PREFIX, responses=ERROR_RESPONSES)
     for router in (
         auth_router,
         users_router,

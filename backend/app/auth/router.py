@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.auth.security import (
 from app.config import Settings
 from app.db import utcnow
 from app.deps import AdminUser, CurrentUser, OptionalUser, SessionDep, SettingsDep
+from app.errors import ApiError, ErrorCode
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
@@ -47,12 +48,12 @@ async def register(body: RegisterIn, session: SessionDep, actor: OptionalUser) -
     if user_count == 0:
         role = Role.admin
     elif actor is None or actor.role != Role.admin:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only admins can create users")
+        raise ApiError(ErrorCode.registration_closed)
     else:
         role = body.role
 
     if await session.scalar(select(User.id).where(User.username == body.username)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken")
+        raise ApiError(ErrorCode.username_taken)
 
     user = User(
         username=body.username,
@@ -69,7 +70,7 @@ async def register(body: RegisterIn, session: SessionDep, actor: OptionalUser) -
 async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -> TokenPair:
     user = await session.scalar(select(User).where(User.username == body.username))
     if user is None or not verify_password(user.password_hash, body.password):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
+        raise ApiError(ErrorCode.invalid_credentials)
     return await _issue_tokens(session, settings, user)
 
 
@@ -83,7 +84,7 @@ async def refresh(body: RefreshIn, session: SessionDep, settings: SettingsDep) -
         .with_for_update()
     )
     if token is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
+        raise ApiError(ErrorCode.invalid_refresh_token)
 
     now = utcnow()
     if token.revoked_at is not None:
@@ -93,13 +94,13 @@ async def refresh(body: RefreshIn, session: SessionDep, settings: SettingsDep) -
             .values(revoked_at=now)
         )
         await session.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token reuse detected")
+        raise ApiError(ErrorCode.refresh_token_reused)
     if token.expires_at <= now:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token expired")
+        raise ApiError(ErrorCode.refresh_token_expired)
 
     user = await session.get(User, token.user_id)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
+        raise ApiError(ErrorCode.invalid_refresh_token)
     token.revoked_at = now
     return await _issue_tokens(session, settings, user)
 
@@ -131,8 +132,8 @@ async def list_users(session: SessionDep, _: AdminUser) -> list[User]:
 async def delete_user(username: str, session: SessionDep, admin: AdminUser) -> None:
     user = await session.scalar(select(User).where(User.username == username))
     if user is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        raise ApiError(ErrorCode.user_not_found)
     if user.id == admin.id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete yourself")
+        raise ApiError(ErrorCode.cannot_delete_self)
     await session.delete(user)
     await session.commit()

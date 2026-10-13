@@ -2,13 +2,14 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
+from app.errors import ApiError, ErrorCode
 from app.library.models import Track
 from app.library.queries import track_out, track_select
 from app.me.models import PlayEvent, TrackLike
@@ -30,7 +31,7 @@ class RecentTrack(BaseModel):
 
 async def _ensure_track(session, track_id: uuid.UUID) -> None:
     if await session.get(Track, track_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Track not found")
+        raise ApiError(ErrorCode.track_not_found)
 
 
 @router.put("/likes/tracks/{track_id}", status_code=status.HTTP_204_NO_CONTENT)
