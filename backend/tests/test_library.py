@@ -222,9 +222,23 @@ async def test_jobs_listing(client, admin, make_audio, run_jobs):
 
 
 def test_resolve_in_library_blocks_traversal(tmp_path):
-    with pytest.raises(ValueError):
-        resolve_in_library(tmp_path, "../etc/passwd")
-    assert resolve_in_library(tmp_path, "a/b.mp3") == (tmp_path / "a/b.mp3").resolve()
+    for bad in ("../etc/passwd", "a/../../etc/passwd", "/etc/passwd"):
+        with pytest.raises(ValueError):
+            resolve_in_library(tmp_path, bad)
+    assert resolve_in_library(tmp_path, "a/b.mp3") == tmp_path.resolve() / "a/b.mp3"
+
+
+async def test_files_in_symlinked_folders_are_imported(
+    client, admin, make_audio, run_jobs, settings, tmp_path
+):
+    (tmp_path / "elsewhere").mkdir()
+    make_audio("../elsewhere/1.mp3", title="Linked", artist="A", album="X")
+    (settings.library_path / "Linked").symlink_to(tmp_path / "elsewhere")
+    await scan(client, admin, run_jobs)
+    (track,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert track["title"] == "Linked"
+    stream = await client.get(f"/tracks/{track['id']}/stream?quality=high", headers=admin)
+    assert stream.status_code == 200 and stream.headers["x-thule-quality"] == "high"
 
 
 def test_scan_follows_symlinks_but_not_cycles(tmp_path):

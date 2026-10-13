@@ -6,7 +6,7 @@ import os
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy import ARRAY, String, Uuid, any_, delete, exists, func, literal, select, update
@@ -24,12 +24,13 @@ log = logging.getLogger(__name__)
 
 
 def resolve_in_library(library_root: Path, rel_path: str) -> Path:
-    """Maps a stored relative path to an absolute one, refusing anything outside the root."""
-    root = library_root.resolve()
-    full = (root / rel_path).resolve()
-    if not full.is_relative_to(root):
+    """Maps a stored relative path to an absolute one. Refuses absolute paths and `..`, but
+    does not resolve symlinks: the scanner includes symlinked folders on purpose, and their
+    files live outside the root."""
+    rel = PurePosixPath(rel_path)
+    if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"Path escapes library root: {rel_path}")
-    return full
+    return library_root.resolve() / rel
 
 
 def _walk(root: Path) -> dict[str, tuple[int, float]]:
