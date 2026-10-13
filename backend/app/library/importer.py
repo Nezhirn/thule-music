@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import AUDIO_EXTENSIONS
 from app.jobs.context import JobContext
-from app.jobs.queue import enqueue
+from app.jobs.queue import enqueue, enqueue_many
 from app.library.covers import is_image, store_cover
 from app.library.models import Album, Artist, Cover, Track, name_key
 from app.library.queries import TRACK_ORDER
@@ -302,8 +302,9 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
             return k is None or (k.size, k.mtime) != stat
 
         changed = [path for path, stat in on_disk.items() if needs_import(path, stat)]
-        for rel in changed:
-            await enqueue(session, "import_track", {"path": rel}, dedupe_key=f"import:{rel}")
+        await enqueue_many(
+            session, "import_track", [({"path": rel}, f"import:{rel}") for rel in changed]
+        )
         if removed:
             await session.execute(
                 delete(Track).where(Track.path == any_(literal(removed, ARRAY(String))))
@@ -331,10 +332,10 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
                 select(Album.id, Album.cover_source, Album.cover_mtime)
             )
         ]
-        for album_id in _stale_covers(albums, folders, images):
-            await enqueue(
-                session, "album_cover", {"album_id": str(album_id)}, dedupe_key=f"cover:{album_id}"
-            )
+        stale = _stale_covers(albums, folders, images)
+        await enqueue_many(
+            session, "album_cover", [({"album_id": str(a)}, f"cover:{a}") for a in stale]
+        )
 
         if await session.scalar(select(exists().where(Cover.palette.is_(None)))):
             await enqueue(session, "cover_palettes", dedupe_key="cover_palettes")
