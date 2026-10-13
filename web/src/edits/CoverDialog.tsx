@@ -1,6 +1,8 @@
 import { ImageUp } from "lucide-react";
-import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import type { Schemas } from "../api/client";
 import { errorMessage } from "../api/errors";
+import { ArtistImage } from "../catalog/ArtistImage";
 import { Cover } from "../catalog/Cover";
 import { artistNames } from "../catalog/format";
 import type { Album, Track } from "../catalog/queries";
@@ -9,10 +11,11 @@ import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
 import { Dialog, DialogButtons } from "../ui/Dialog";
 import type { CoverSubject } from "./context";
-import { MAX_COVER_BYTES, useAlbumCover, useTrackCover } from "./queries";
+import { MAX_COVER_BYTES, useAlbumCover, useArtistCover, useTrackCover } from "./queries";
 import styles from "./edits.module.css";
 
-/** Where an admin chooses an album's cover or a track's own picture, or gives it up. */
+/** Where an admin chooses an album's cover, a track's own picture or an artist's, or gives
+ * it up. */
 export function CoverDialog({
   subject,
   onClose,
@@ -27,9 +30,12 @@ export function CoverDialog({
   if (subject?.kind === "album") {
     title = text.album;
     description = `${subject.album.title} — ${subject.album.artist.name}`;
-  } else if (subject) {
+  } else if (subject?.kind === "track") {
     title = text.track;
     description = `${subject.track.title} — ${artistNames(subject.track)}`;
+  } else if (subject) {
+    title = text.artist;
+    description = subject.artist.name;
   }
   return (
     <Dialog open={subject !== null} onClose={onClose} title={title} description={description}>
@@ -38,6 +44,9 @@ export function CoverDialog({
       )}
       {subject?.kind === "track" && (
         <TrackCover key={subject.track.id} track={subject.track} onClose={onClose} />
+      )}
+      {subject?.kind === "artist" && (
+        <ArtistPicture key={subject.artist.id} artist={subject.artist} onClose={onClose} />
       )}
     </Dialog>
   );
@@ -55,7 +64,7 @@ function AlbumCover({
   const [shown, setShown] = useState({ id: album.cover_id, custom: album.cover_custom ?? false });
   return (
     <CoverPicker
-      coverId={shown.id}
+      art={<Cover id={shown.id} sizes="240px" className={styles.preview} />}
       note={t.edits.cover.albumNote}
       resetLabel={shown.custom ? t.edits.cover.resetAlbum : null}
       change={(picture) =>
@@ -79,7 +88,7 @@ function TrackCover({ track, onClose }: { track: Track; onClose(): void }) {
   });
   return (
     <CoverPicker
-      coverId={shown.id}
+      art={<Cover id={shown.id} sizes="240px" className={styles.preview} />}
       note={t.edits.cover.trackNote}
       resetLabel={shown.custom ? t.edits.cover.resetTrack : null}
       change={(picture) =>
@@ -94,9 +103,38 @@ function TrackCover({ track, onClose }: { track: Track; onClose(): void }) {
   );
 }
 
-/** The cover as it is, a drop zone over it, the buttons to choose an image or give it up. */
+function ArtistPicture({ artist, onClose }: { artist: Schemas["ArtistDetail"]; onClose(): void }) {
+  const { t } = useI18n();
+  const change = useArtistCover(artist);
+  const [shown, setShown] = useState({ id: artist.cover_id, custom: artist.cover_custom });
+  return (
+    <CoverPicker
+      art={
+        <ArtistImage
+          name={artist.name}
+          coverId={shown.id}
+          sizes="240px"
+          className={`${styles.preview} ${styles.portrait}`}
+        />
+      }
+      note={t.edits.cover.artistNote}
+      resetLabel={shown.custom ? t.edits.cover.resetArtist : null}
+      change={(picture) =>
+        change.mutate(picture, {
+          onSuccess: (out) => setShown({ id: out.cover_id, custom: picture !== null }),
+        })
+      }
+      pending={change.isPending ? (change.variables ? "upload" : "reset") : null}
+      error={change.error}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The picture as it is, a drop zone over it, the buttons to choose an image or give it
+ * up. */
 function CoverPicker({
-  coverId,
+  art,
   note,
   resetLabel,
   change,
@@ -104,7 +142,7 @@ function CoverPicker({
   error,
   onClose,
 }: {
-  coverId: string | null;
+  art: ReactNode;
   note: string;
   /** The button giving up the chosen cover; null when there is none to give up. */
   resetLabel: string | null;
@@ -157,7 +195,7 @@ function CoverPicker({
           pick(event.dataTransfer.files[0]);
         }}
       >
-        <Cover id={coverId} sizes="240px" className={styles.preview} />
+        {art}
         <span className={styles.dropHint} aria-hidden="true">
           <ImageUp />
           {text.drop}

@@ -270,7 +270,14 @@ export interface paths {
         get: operations["get_artist"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Artist
+         * @description Deletes from the disk the files of the artist's tracks and of their albums (and the
+         *     folders left without music). Tracks of others that only feature them stay: the artist
+         *     leaves their tags ("feat." in titles too). To keep the tracks, give them to another
+         *     artist instead: rename_artist with that one's name.
+         */
+        delete: operations["delete_artist"];
         options?: never;
         head?: never;
         /**
@@ -383,10 +390,20 @@ export interface paths {
         get: operations["list_genres"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Genre
+         * @description `albums=keep` takes the genre off its albums' tracks; `albums=delete` deletes their
+         *     files from the disk (and the folders left without music).
+         */
+        delete: operations["delete_genre"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename Genre
+         * @description Renames the genre in the tags of its albums' tracks. The name of another genre merges
+         *     the two.
+         */
+        patch: operations["rename_genre"];
         trace?: never;
     };
     "/api/v1/library/stats": {
@@ -628,6 +645,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/artists/{artist_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Artist Cover
+         * @description The artist's picture, instead of their newest album's cover. JPEG, PNG or WebP up to
+         *     20 MB. Kept on the server: the files have no place for it.
+         */
+        put: operations["set_artist_cover"];
+        post?: never;
+        /**
+         * Reset Artist Cover
+         * @description The artist shows their newest album's cover again.
+         */
+        delete: operations["reset_artist_cover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/albums/{album_id}/tracks": {
         parameters: {
             query?: never;
@@ -650,6 +692,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/artists/{artist_id}/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload To Artist
+         * @description Adds an audio file to the artist's album titled `album`, as upload_to_album does. With
+         *     no such album yet, it is a new one: the file goes to "<artist>/<album>/", tagged with the
+         *     title, the artist, and `year` and `genre` if given.
+         */
+        post: operations["upload_to_artist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tracks/move": {
         parameters: {
             query?: never;
@@ -665,6 +729,50 @@ export interface paths {
          *     lyrics files) and are tagged as its own. Returns that album.
          */
         post: operations["move_tracks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/albums/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Albums
+         * @description Gives albums to another artist, one of the library or a new one: in their tracks'
+         *     tags the album artist changes, and so does the track artist where it was the album's
+         *     ("feat." in titles too). An album with the title of one of theirs is merged into it. The
+         *     files stay where they are. Returns that artist.
+         */
+        post: operations["move_albums"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/albums/genre": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Albums Genre
+         * @description Moves albums into a genre, one of the library or a new one: in their tracks' tags.
+         *     Returns that genre.
+         */
+        post: operations["set_albums_genre"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1226,6 +1334,20 @@ export interface components {
              */
             duplicate: boolean;
         };
+        /** AlbumsGenre */
+        AlbumsGenre: {
+            /** Album Ids */
+            album_ids: string[];
+            /** Genre */
+            genre: string;
+        };
+        /** AlbumsMove */
+        AlbumsMove: {
+            /** Album Ids */
+            album_ids: string[];
+            /** Artist */
+            artist: string;
+        };
         /** ArtistDetail */
         ArtistDetail: {
             /**
@@ -1245,6 +1367,11 @@ export interface components {
              * @default false
              */
             liked: boolean;
+            /**
+             * Cover Custom
+             * @default false
+             */
+            cover_custom: boolean;
             /** Albums */
             albums: components["schemas"]["AlbumOut"][];
             /** Appears On */
@@ -1292,6 +1419,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_set_artist_cover */
+        Body_set_artist_cover: {
+            /** File */
+            file: string;
+        };
         /** Body_set_track_cover */
         Body_set_track_cover: {
             /** File */
@@ -1316,6 +1448,17 @@ export interface components {
         Body_upload_to_album: {
             /** File */
             file: string;
+        };
+        /** Body_upload_to_artist */
+        Body_upload_to_artist: {
+            /** File */
+            file: string;
+            /** Album */
+            album: string;
+            /** Year */
+            year?: number | null;
+            /** Genre */
+            genre?: string | null;
         };
         /**
          * CoverPalette
@@ -1344,19 +1487,29 @@ export interface components {
          * ErrorCode
          * @enum {string}
          */
-        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "tags_not_writable" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "job_not_found" | "library_not_writable" | "disk_full" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
+        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "tags_not_writable" | "unknown_albums" | "genre_not_found" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "job_not_found" | "library_not_writable" | "disk_full" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
         /** ErrorOut */
         ErrorOut: {
             code: components["schemas"]["ErrorCode"];
             /** Detail */
             detail: string | components["schemas"]["ValidationIssue"][];
         };
+        /**
+         * GenreDeletion
+         * @enum {string}
+         */
+        GenreDeletion: "keep" | "delete";
         /** GenreOut */
         GenreOut: {
             /** Name */
             name: string;
             /** Album Count */
             album_count: number;
+        };
+        /** GenrePatch */
+        GenrePatch: {
+            /** Name */
+            name: string;
         };
         /** History */
         History: {
@@ -2535,6 +2688,35 @@ export interface operations {
             };
         };
     };
+    delete_artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     rename_artist: {
         parameters: {
             query?: never;
@@ -2848,6 +3030,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenreOut"][];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    delete_genre: {
+        parameters: {
+            query: {
+                genre: string;
+                albums: components["schemas"]["GenreDeletion"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    rename_genre: {
+        parameters: {
+            query: {
+                genre: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenrePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreOut"];
                 };
             };
             /** @description Error */
@@ -3296,6 +3543,72 @@ export interface operations {
             };
         };
     };
+    set_artist_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_set_artist_cover"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    reset_artist_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     upload_to_album: {
         parameters: {
             query?: never;
@@ -3308,6 +3621,41 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_upload_to_album"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumUpload"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    upload_to_artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_to_artist"];
             };
         };
         responses: {
@@ -3351,6 +3699,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlbumOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    move_albums: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlbumsMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    set_albums_genre: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlbumsGenre"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreOut"];
                 };
             };
             /** @description Error */

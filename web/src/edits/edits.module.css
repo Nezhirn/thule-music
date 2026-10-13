@@ -35,6 +35,11 @@
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
 }
 
+/* An artist's picture: round, as on their page. */
+.preview.portrait {
+  border-radius: 50%;
+}
+
 /* Shown while an image is dragged over the cover. */
 .dropHint {
   position: absolute;
@@ -256,4 +261,8 @@
   width: 72px;
   margin-left: auto;
   accent-color: var(--accent);
+}
+
+.dropArea[data-disabled] {
+  opacity: 0.6;
 }

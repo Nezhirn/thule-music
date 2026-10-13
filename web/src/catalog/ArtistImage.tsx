@@ -2,8 +2,9 @@ import { coverUrl } from "../api/covers";
 import { toHex, fromOklch } from "../theme/color";
 import styles from "./ArtistImage.module.css";
 
-/** An artist's picture: the cover of their newest album, round; their initial on a colour of
- * their own where there is none. Decorative: the name is next to it. */
+/** An artist's picture (the one an admin chose, else the cover of their newest album), round;
+ * their initial on a colour of their own where there is none. Decorative: the name is next
+ * to it. */
 export function ArtistImage({
   name,
   coverId,

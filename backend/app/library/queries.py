@@ -125,7 +125,8 @@ async def albums_out(
 async def artists_out(
     session: AsyncSession, user_id: uuid.UUID, artists: Sequence[Artist]
 ) -> list[ArtistOut]:
-    """Adds album counts, a representative cover (newest album with artwork) and the like."""
+    """Adds album counts, a picture (the one an admin chose, else the newest album with artwork)
+    and the like."""
     ids = [a.id for a in artists]
     if not ids:
         return []
@@ -149,6 +150,13 @@ async def artists_out(
             )
         ).all()
     )
+    # Pictures admins chose, instead of the albums'.
+    if chosen := [a.cover_id for a in artists if a.cover_id is not None]:
+        found = await session.scalars(select(Cover).where(Cover.id.in_(chosen)))
+        pictures = {c.id: c for c in found}
+        for a in artists:
+            if a.cover_id in pictures:
+                covers[a.id] = pictures[a.cover_id]
     liked = await _liked(session, ArtistLike, ArtistLike.artist_id, user_id, ids)
     return [
         ArtistOut(

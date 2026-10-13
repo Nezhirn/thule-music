@@ -1,5 +1,5 @@
 """Admins' corrections of what the files say about a cover: an album's chosen by hand, a
-picture of a track's own. Lyrics are corrected in app.lyrics.router."""
+picture of a track's own, an artist's picture. Lyrics are corrected in app.lyrics.router."""
 
 import uuid
 
@@ -11,9 +11,9 @@ from app.deps import AdminUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
 from app.library.covers import MAX_COVER_BYTES, store_cover
 from app.library.importer import choose_album_cover
-from app.library.models import Album, Cover, Track
-from app.library.queries import ALBUM_LOAD, albums_out, track_select, tracks_out
-from app.schemas import AlbumOut, TrackOut
+from app.library.models import Album, Artist, Cover, Track
+from app.library.queries import ALBUM_LOAD, albums_out, artists_out, track_select, tracks_out
+from app.schemas import AlbumOut, ArtistOut, TrackOut
 
 edits_router = APIRouter(tags=["admin"])
 
@@ -118,3 +118,39 @@ async def reset_track_cover(track_id: uuid.UUID, session: SessionDep, admin: Adm
     track.cover_id = None
     await session.commit()
     return await _track_out(session, admin, track_id)
+
+
+async def _artist(session: SessionDep, artist_id: uuid.UUID) -> Artist:
+    artist = await session.get(Artist, artist_id)
+    if artist is None:
+        raise ApiError(ErrorCode.artist_not_found)
+    return artist
+
+
+@edits_router.put("/artists/{artist_id}/cover", response_model=ArtistOut)
+async def set_artist_cover(
+    artist_id: uuid.UUID,
+    file: UploadFile,
+    session: SessionDep,
+    settings: SettingsDep,
+    admin: AdminUser,
+) -> ArtistOut:
+    """The artist's picture, instead of their newest album's cover. JPEG, PNG or WebP up to
+    20 MB. Kept on the server: the files have no place for it."""
+    artist = await _artist(session, artist_id)
+    artist.cover_id = (await _picture(session, settings, file)).id
+    await session.commit()
+    (out,) = await artists_out(session, admin.id, [artist])
+    return out
+
+
+@edits_router.delete("/artists/{artist_id}/cover", response_model=ArtistOut)
+async def reset_artist_cover(
+    artist_id: uuid.UUID, session: SessionDep, admin: AdminUser
+) -> ArtistOut:
+    """The artist shows their newest album's cover again."""
+    artist = await _artist(session, artist_id)
+    artist.cover_id = None
+    await session.commit()
+    (out,) = await artists_out(session, admin.id, [artist])
+    return out

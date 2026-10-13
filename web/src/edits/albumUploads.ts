@@ -1,5 +1,5 @@
-// Uploading files into an album: a queue sent one file at a time, outside React, so it goes
-// on when the dialog is closed.
+// Uploading files into an album, or an artist's album by its title: a queue sent one file at
+// a time, outside React, so it goes on when the dialog is closed.
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Schemas } from "../api/client";
 
@@ -16,9 +16,20 @@ export type AlbumUploadState =
   | { stage: "duplicate"; track: Track }
   | { stage: "failed"; error: unknown };
 
+/** Where a file goes: into an album; or into the artist's album titled `album`, a new one
+ * if they have none (with this year and genre). */
+export type UploadTarget =
+  | { kind: "album"; albumId: string }
+  | { kind: "artist"; artistId: string; album: string; year: number | null; genre: string | null };
+
+/** The dialog showing an upload: its album's, or its artist's. */
+export const placeOf = (target: UploadTarget) =>
+  target.kind === "album" ? `album:${target.albumId}` : `artist:${target.artistId}`;
+
 export interface AlbumUploadItem {
   id: number;
-  albumId: string;
+  target: UploadTarget;
+  place: string;
   file: File;
   state: AlbumUploadState;
 }
@@ -32,16 +43,16 @@ export interface AlbumUploadsState {
 
 export interface AlbumUploads {
   store: StoreApi<AlbumUploadsState>;
-  add(albumId: string, files: File[]): void;
-  /** Forgets the finished uploads of the album. */
-  clear(albumId: string): void;
+  add(target: UploadTarget, files: File[]): void;
+  /** Forgets the finished uploads shown in a place (see placeOf). */
+  clear(place: string): void;
   /** Stops and forgets everything (signing out). */
   reset(): void;
 }
 
 export interface AlbumUploadDeps {
   send(
-    albumId: string,
+    target: UploadTarget,
     file: File,
     onProgress: (progress: number) => void,
     signal: AbortSignal,
@@ -71,7 +82,7 @@ export function createAlbumUploads(deps: AlbumUploadDeps): AlbumUploads {
       set(item.id, { stage: "sending", progress: 0 });
       try {
         const result = await deps.send(
-          item.albumId,
+          item.target,
           item.file,
           (progress) => set(item.id, { stage: "sending", progress }),
           signal,
@@ -90,21 +101,22 @@ export function createAlbumUploads(deps: AlbumUploadDeps): AlbumUploads {
 
   return {
     store,
-    add(albumId, files) {
+    add(target, files) {
       const items = files.map((file) => ({
         id: next++,
-        albumId,
+        target,
+        place: placeOf(target),
         file,
         state: { stage: "waiting" } as const,
       }));
       store.setState((state) => ({ items: [...state.items, ...items] }));
       void run();
     },
-    clear(albumId) {
+    clear(place) {
       store.setState(({ items }) => ({
         items: items.filter(
           (item) =>
-            item.albumId !== albumId ||
+            item.place !== place ||
             item.state.stage === "waiting" ||
             item.state.stage === "sending",
         ),

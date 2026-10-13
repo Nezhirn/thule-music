@@ -1,6 +1,7 @@
 import type { Schemas } from "../api/client";
 import { ApiFailure } from "../api/errors";
 import { getAccessToken, renewAccessToken } from "../auth/tokens";
+import type { UploadTarget } from "../edits/albumUploads";
 
 type UploadResult = Schemas["UploadResult"];
 
@@ -32,9 +33,9 @@ export async function sendFile(
   return result;
 }
 
-/** Uploads an audio file into an album (see sendFile). */
+/** Uploads an audio file into an album, or an artist's album (see sendFile). */
 export async function sendToAlbum(
-  albumId: string,
+  target: UploadTarget,
   file: File,
   onProgress: (progress: number) => void,
   signal: AbortSignal,
@@ -42,9 +43,17 @@ export async function sendToAlbum(
   const form = () => {
     const data = new FormData();
     data.append("file", file, file.name);
+    if (target.kind === "artist") {
+      data.append("album", target.album);
+      if (target.year !== null) data.append("year", String(target.year));
+      if (target.genre !== null) data.append("genre", target.genre);
+    }
     return data;
   };
-  const url = `/api/v1/albums/${albumId}/tracks`;
+  const url =
+    target.kind === "album"
+      ? `/api/v1/albums/${target.albumId}/tracks`
+      : `/api/v1/artists/${target.artistId}/tracks`;
   const response = await send(url, form, file, onProgress, signal);
   return (await response.json()) as Schemas["AlbumUpload"];
 }

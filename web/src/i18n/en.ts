@@ -220,6 +220,12 @@ export const en = {
     deleteAlbum: "Delete album",
     deleteTrack: "Delete track",
     renameArtist: "Rename artist",
+    changePicture: "Change picture",
+    uploadAlbum: "Upload an album",
+    moveAlbums: "Move albums",
+    deleteArtist: "Delete artist",
+    renameGenre: "Rename genre",
+    deleteGenre: "Delete genre",
     save: "Save",
     saving: "Saving…",
     tagsNote: "Changes are written into the tags of the files.",
@@ -293,6 +299,83 @@ export const en = {
       renamed: (name: string) => `Renamed to ${name}`,
       merged: (name: string) => `Merged into ${name}`,
     },
+    artistUpload: {
+      title: "Upload an album",
+      album: "Album title",
+      note: "If the artist has an album with this title, the tracks join it.",
+      hint: "MP3, FLAC, Ogg, Opus or M4A. The files go to the folder “Artist/Album” and get the album's tags; a file without a number comes last.",
+      needTitle: "Type the album's title first.",
+    },
+    pick: {
+      toArtist: "To artist",
+      findArtist: "Find an artist",
+      typeToFind: "Type a name to find them.",
+      noArtists: "No artists found",
+      newArtist: "A new artist",
+      newArtistName: "Artist name",
+      toGenre: "Into genre",
+      noGenres: "No other genres",
+      newGenre: "A new genre",
+      newGenreName: "Genre name",
+    },
+    moveAlbumsDialog: {
+      title: "Move albums",
+      which: "Which albums",
+      all: "All albums",
+      artistNote:
+        "The album artist changes in the tags, and so does the track artist where it was the old one. The files stay where they are. An album with the title of one of the new artist's merges into it.",
+      genreNote: "The genre is written into the tags of the albums' tracks.",
+      submit: "Move",
+      moving: "Moving…",
+      movedToArtist: (n: number, name: string) =>
+        plural("en", n, { one: `Moved # album to ${name}`, other: `Moved # albums to ${name}` }),
+      movedToGenre: (n: number, name: string) =>
+        plural("en", n, {
+          one: `Moved # album into ${name}`,
+          other: `Moved # albums into ${name}`,
+        }),
+    },
+    deleteArtistDialog: {
+      title: "Delete artist",
+      withFiles: "Delete them with their music",
+      withFilesNote:
+        "The files of all their albums and tracks are deleted from the disk. Others' tracks featuring them stay, without their name.",
+      give: "Give everything to another artist",
+      giveNote: "The files stay: their albums and tracks go to the artist you choose, likes too.",
+      giveTo: "To whom",
+      submit: "Delete",
+      giveSubmit: "Give",
+      deleting: "Deleting…",
+      giving: "Giving…",
+      deleted: (name: string) => `Deleted ${name}`,
+    },
+    genre: {
+      title: "Rename genre",
+      name: "Name",
+      note: (n: number) =>
+        plural("en", n, {
+          one: "The name changes in the tags of its album's tracks. The name of another genre merges the two.",
+          other:
+            "The name changes in the tags of the tracks of its # albums. The name of another genre merges the two.",
+        }),
+      renamed: (name: string) => `Renamed to ${name}`,
+      merged: (name: string) => `Merged into ${name}`,
+    },
+    deleteGenreDialog: {
+      title: "Delete genre",
+      keep: "Keep the albums, without a genre",
+      keepNote: "The genre leaves the tags of their tracks; the files stay.",
+      withAlbums: "Delete it with its albums",
+      withAlbumsNote: (n: number) =>
+        plural("en", n, {
+          one: "The files of its album are deleted from the disk.",
+          other: "The files of its # albums are deleted from the disk.",
+        }),
+      submit: "Delete",
+      deleting: "Deleting…",
+      removed: (name: string) => `Took ${name} off its albums`,
+      deleted: (name: string) => `Deleted ${name} with its albums`,
+    },
     upload: {
       title: "Upload into the album",
       choose: "Choose files",
@@ -334,6 +417,9 @@ export const en = {
       notImage: "This file is not an image.",
       resetAlbum: "Take it from the files",
       resetTrack: "Show the album cover",
+      artist: "Artist picture",
+      artistNote: "Kept on the server: it shows instead of the cover of their newest album.",
+      resetArtist: "Show the album cover",
       changed: (name: string) => `Changed the cover of ${name}`,
     },
   },
@@ -644,6 +730,8 @@ export const en = {
     playlist_not_found: "Playlist not found.",
     playlist_item_not_found: "This track is no longer in the playlist.",
     unknown_tracks: "Some tracks no longer exist.",
+    unknown_albums: "Some albums no longer exist.",
+    genre_not_found: "This genre has no albums any more.",
   } satisfies Record<Schemas["ErrorCode"], string>,
 };
 

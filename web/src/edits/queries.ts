@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, type Schemas } from "../api/client";
 import { errorMessage, unwrap } from "../api/errors";
 import type { Album, Artist, Track } from "../catalog/queries";
@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { usePlayerControls } from "../player/context";
 import type { Player } from "../player/player";
 import { announce } from "../ui/toast";
+import type { GenreSubject } from "./context";
 
 /** The server's limit for a cover. */
 export const MAX_COVER_BYTES = 20 * 1024 * 1024;
@@ -282,6 +283,144 @@ export function useRenameArtist(artist: Pick<Artist, "id" | "name">) {
       );
       const text = t.edits.artist;
       announce((saved.id === artist.id ? text.renamed : text.merged)(saved.name));
+    },
+  });
+}
+
+export function useArtistCover(artist: Pick<Artist, "id" | "name">) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (picture: Picture) => {
+      const params = { path: { artist_id: artist.id } };
+      return unwrap(
+        picture
+          ? api.PUT("/api/v1/artists/{artist_id}/cover", { params, ...form(picture) })
+          : api.DELETE("/api/v1/artists/{artist_id}/cover", { params }),
+      );
+    },
+    onSuccess: () => {
+      libraryEdited(queryClient);
+      announce(t.edits.cover.changed(artist.name));
+    },
+  });
+}
+
+/** Deletes the artist with the files of their tracks; those of others featuring them lose
+ * their name. */
+export function useDeleteArtist(artist: Pick<Artist, "id" | "name">) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.DELETE("/api/v1/artists/{artist_id}", { params: { path: { artist_id: artist.id } } }),
+      ),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["artist", artist.id] });
+      libraryEdited(queryClient);
+      void refreshQueued(
+        player,
+        (track) =>
+          track.album_artist.id === artist.id || track.artists.some((a) => a.id === artist.id),
+      );
+      announce(t.edits.deleteArtistDialog.deleted(artist.name));
+    },
+  });
+}
+
+/** Gives albums to another artist. */
+export function useMoveAlbums() {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (body: Schemas["AlbumsMove"]) => unwrap(api.POST("/api/v1/albums/move", { body })),
+    onSuccess: (artist, { album_ids }) => {
+      libraryEdited(queryClient);
+      void refreshQueued(player, (track) => album_ids.includes(track.album.id));
+      announce(t.edits.moveAlbumsDialog.movedToArtist(album_ids.length, artist.name));
+    },
+  });
+}
+
+/** Moves albums into a genre. */
+export function useSetAlbumsGenre() {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas["AlbumsGenre"]) =>
+      unwrap(api.POST("/api/v1/albums/genre", { body })),
+    onSuccess: (genre, { album_ids }) => {
+      libraryEdited(queryClient);
+      announce(t.edits.moveAlbumsDialog.movedToGenre(album_ids.length, genre.name));
+    },
+  });
+}
+
+/** Most albums the server gives at once. */
+const ALBUMS_PAGE = 200;
+
+/** All the albums of a genre, by title. */
+export const genreAlbumsQuery = (genre: string) =>
+  queryOptions({
+    queryKey: ["albums", "genre", genre],
+    queryFn: async () => {
+      const albums: Album[] = [];
+      for (;;) {
+        const page = await unwrap(
+          api.GET("/api/v1/albums", {
+            params: {
+              query: { genre, sort: "title", limit: ALBUMS_PAGE, offset: albums.length },
+            },
+          }),
+        );
+        albums.push(...page.items);
+        if (page.items.length === 0 || albums.length >= page.total) return albums;
+      }
+    },
+  });
+
+export function useRenameGenre(genre: GenreSubject) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      unwrap(
+        api.PATCH("/api/v1/genres", { params: { query: { genre: genre.name } }, body: { name } }),
+      ),
+    onSuccess: (saved) => {
+      libraryEdited(queryClient);
+      const text = t.edits.genre;
+      // More albums than it had: another genre's joined it.
+      announce((saved.album_count > genre.albumCount ? text.merged : text.renamed)(saved.name));
+    },
+  });
+}
+
+/** Takes the genre off its albums, or deletes them with their files. */
+export function useDeleteGenre(genre: GenreSubject) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: async (albums: Schemas["GenreDeletion"]) => {
+      // The albums whose tracks leave the queue.
+      const gone =
+        albums === "delete"
+          ? (await queryClient.fetchQuery(genreAlbumsQuery(genre.name))).map((a) => a.id)
+          : [];
+      await unwrap(
+        api.DELETE("/api/v1/genres", { params: { query: { genre: genre.name, albums } } }),
+      );
+      return gone;
+    },
+    onSuccess: (gone, albums) => {
+      libraryEdited(queryClient);
+      if (gone.length) void refreshQueued(player, (track) => gone.includes(track.album.id));
+      const text = t.edits.deleteGenreDialog;
+      announce((albums === "delete" ? text.deleted : text.removed)(genre.name));
     },
   });
 }

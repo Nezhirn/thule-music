@@ -154,3 +154,36 @@ async def test_a_track_shows_its_own_picture(client, admin, user, make_audio, ru
     reset = await client.delete(f"/tracks/{one['id']}/cover", headers=admin)
     assert reset.status_code == 200 and reset.json()["cover_id"] == album_cover
     assert (await client.delete(f"/tracks/{one['id']}/cover", headers=user)).status_code == 403
+
+
+async def test_an_artists_picture_chosen_by_an_admin(
+    client, admin, user, make_audio, run_jobs, job_ctx
+):
+    make_audio("a/1.mp3", title="Song", artist="A", album="Old", year=2001, cover=(10, 10, 10))
+    make_audio("b/1.mp3", title="Hit", artist="A", album="New", year=2020, cover=(200, 0, 0))
+    await scan(client, admin, run_jobs)
+    (artist,) = (await client.get("/artists", headers=user)).json()["items"]
+    newest = (await client.get(f"/artists/{artist['id']}", headers=user)).json()
+    assert newest["cover_custom"] is False and newest["cover_id"] is not None
+
+    url = f"/artists/{artist['id']}/cover"
+    resp = await client.put(url, files=upload((0, 0, 255)), headers=admin)
+    assert resp.status_code == 200, resp.text
+    chosen = resp.json()["cover_id"]
+    assert chosen not in (None, newest["cover_id"])
+    assert resp.json()["cover_palette"]["average"] == "#0000ff"
+    detail = (await client.get(f"/artists/{artist['id']}", headers=user)).json()
+    assert detail["cover_custom"] is True and detail["cover_id"] == chosen
+    assert (await client.get("/artists", headers=user)).json()["items"][0]["cover_id"] == chosen
+
+    # Scans and housekeeping keep it.
+    await scan(client, admin, run_jobs)
+    await housekeeping(job_ctx, {})
+    assert (await client.get(f"/artists/{artist['id']}", headers=user)).json()["cover_id"] == chosen
+    assert (await client.get(f"/covers/{chosen}?size=64")).status_code == 200
+
+    reset = await client.delete(url, headers=admin)
+    assert reset.status_code == 200 and reset.json()["cover_id"] == newest["cover_id"]
+    assert (await client.put(url, files=upload((1, 1, 1)), headers=user)).status_code == 403
+    missing = "/artists/00000000-0000-0000-0000-000000000000/cover"
+    assert (await client.delete(missing, headers=admin)).json()["code"] == "artist_not_found"

@@ -18,7 +18,7 @@ from app.jobs.context import JobContext
 from app.jobs.models import Job, JobStatus
 from app.jobs.queue import enqueue
 from app.library.covers import COVERS_LOCK
-from app.library.models import Album, Cover, Track, TrackFile
+from app.library.models import Album, Artist, Cover, Track, TrackFile
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ async def housekeeping(ctx: JobContext, payload: dict[str, Any]) -> None:
             delete(Cover).where(
                 ~exists().where(Album.cover_id == Cover.id),
                 ~exists().where(Track.cover_id == Cover.id),
+                ~exists().where(Artist.cover_id == Cover.id),
                 ~exists().where(User.avatar_id == Cover.id),
             )
         )

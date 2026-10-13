@@ -12,6 +12,8 @@ from app.library.tags import (
     UNKNOWN_ARTIST,
     VARIOUS_ARTISTS,
     read_tags,
+    remove_featured,
+    rename_featured,
     split_featured,
 )
 
@@ -119,6 +121,24 @@ def test_whitespace_in_names_is_collapsed(tmp_path):
 )
 def test_split_featured(text, main, featured):
     assert split_featured(text) == (main, featured)
+
+
+@pytest.mark.parametrize(
+    ("title", "removed", "renamed"),
+    [
+        ("Song (feat. A)", "Song", "Song (feat. Z)"),
+        ("Song (feat. a & B)", "Song (feat. B)", "Song (feat. Z & B)"),
+        ("Song (feat. B, A & C)", "Song (feat. B & C)", "Song (feat. B, Z & C)"),
+        ("Song [ft. B, A] (Live)", "Song [ft. B] (Live)", "Song [ft. B, Z] (Live)"),
+        ("Song feat. B & A", "Song feat. B", "Song feat. B & Z"),
+        ("Song featuring A", "Song", "Song featuring Z"),
+        ("Song (feat. B)", "Song (feat. B)", "Song (feat. B)"),
+        ("Plain", "Plain", "Plain"),
+    ],
+)
+def test_featured_artist_removed_or_renamed_in_a_title(title, removed, renamed):
+    assert remove_featured(title, "A") == removed
+    assert rename_featured(title, "A", "Z") == renamed
 
 
 def test_everyone_credited_once_main_artist_first(tmp_path):

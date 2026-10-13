@@ -1,7 +1,7 @@
 // Administration against the real server: the library's numbers and a scan, uploading an
 // album folder (with its cover and lyrics) and files that are copies or not music, the
-// errors of background work, lyrics and covers corrected by hand, albums, tracks and artists
-// managed (in the files), and the users. Runs after the other tests (see the config):
+// errors of background work, lyrics and covers corrected by hand, albums, tracks, artists
+// and genres managed (in the files), and the users. Runs after the other tests (see the config):
 // the uploaded album would change what they count.
 import { expect, test, type Page } from "./test";
 import { writeFile } from "node:fs/promises";
@@ -410,6 +410,139 @@ test("albums, tracks and artists managed in the files: a scan then finds nothing
   await expect(status("Deleted")).toHaveText("Deleted Polar Night");
   await expect(page.getByRole("heading", { level: 1, name: "Albums" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Polar Night", exact: true })).toHaveCount(0);
+
+  // The files say what the library shows: nothing new for a scan to read.
+  expect(await scanned(baseURL!)).toMatchObject({
+    added: before.added,
+    updated: 0,
+    moved: 0,
+    removed: 0,
+  });
+});
+
+test("artists and genres managed in the files: a scan then finds nothing to do", async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  const before = await scanned(baseURL!);
+  const status = (text: string) => page.getByRole("status").filter({ hasText: text });
+  const menu = async (name: string, item: string) => {
+    await page.getByRole("button", { name: `More for ${name}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: item }).click();
+  };
+  const artist = async (name: string) => {
+    await page.goto("/artists");
+    await page.getByRole("link", { name, exact: true }).first().click();
+    await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
+  };
+  const heading = (name: string) => page.getByRole("heading", { level: 1, name });
+
+  // A genre renamed: the list of its albums follows it.
+  await page.goto("/albums?genre=Indie");
+  await menu("Indie", "Rename genre");
+  let dialog = page.getByRole("dialog", { name: "Rename genre" });
+  await dialog.getByRole("textbox", { name: "Name" }).fill("Indie Rock");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(status("Renamed")).toHaveText("Renamed to Indie Rock");
+  await expect(heading("Indie Rock")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Deep Water", exact: true })).toBeVisible();
+
+  // One of its albums moved into another genre.
+  await menu("Indie Rock", "Move albums");
+  dialog = page.getByRole("dialog", { name: "Move albums" });
+  await dialog.getByRole("checkbox", { name: /Deep Water/ }).check();
+  await dialog.getByRole("radio", { name: /Electronic/ }).check();
+  await expectAccessible(page);
+  await dialog.getByRole("button", { name: "Move" }).click();
+  await expect(status("Moved")).toHaveText("Moved 1 album into Electronic");
+  await expect(page.getByRole("link", { name: "Deep Water", exact: true })).toHaveCount(0);
+
+  // An artist's picture.
+  const portrait = testInfo.outputPath("portrait.jpg");
+  await makeCover(portrait, "#30a050");
+  await artist("Aurora Fields");
+  const art = page.locator("main header img");
+  const albumCover = await art.getAttribute("src");
+  await menu("Aurora Fields", "Change picture");
+  dialog = page.getByRole("dialog", { name: "Artist picture" });
+  await dialog.getByLabel("Choose an image").setInputFiles(portrait);
+  await expect(status("Changed the cover")).toHaveText("Changed the cover of Aurora Fields");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(art).not.toHaveAttribute("src", albumCover!);
+
+  // An album uploaded for the artist, then given to another one.
+  const live = testInfo.outputPath("Live");
+  await writeAlbum(
+    live,
+    {
+      artist: "",
+      title: "",
+      year: 2020,
+      genre: "",
+      format: "flac",
+      cover: null,
+      tracks: ["Northern Encore"],
+    },
+    testInfo.outputPath("covers"),
+  );
+  await menu("Aurora Fields", "Upload an album");
+  dialog = page.getByRole("dialog", { name: "Upload an album" });
+  await dialog.getByRole("textbox", { name: "Album title" }).fill("Live Sessions");
+  await dialog.getByRole("textbox", { name: /Genre/ }).fill("Electronic");
+  await expectAccessible(page);
+  await dialog.getByLabel("Choose files").setInputFiles(`${live}/01 Northern Encore.flac`);
+  await expect(dialog.getByRole("listitem")).toHaveText(/Northern Encore\s*Added · Live Sessions/);
+  await expect(status("Added")).toHaveText("Added 1 track");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
+
+  await menu("Aurora Fields", "Move albums");
+  dialog = page.getByRole("dialog", { name: "Move albums" });
+  await dialog.getByRole("checkbox", { name: /Live Sessions/ }).check();
+  await dialog.getByRole("searchbox", { name: "Find an artist" }).fill("glass");
+  await dialog.getByRole("radio", { name: /Glass Harbor/ }).check();
+  await expectAccessible(page);
+  await dialog.getByRole("button", { name: "Move" }).click();
+  await expect(status("Moved")).toHaveText("Moved 1 album to Glass Harbor");
+  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toHaveCount(0);
+  await expect(heading("Aurora Fields")).toBeVisible();
+
+  // A genre taken off its albums.
+  await page.goto("/albums?genre=Electronic");
+  await menu("Electronic", "Delete genre");
+  dialog = page.getByRole("dialog", { name: "Delete genre" });
+  await dialog.getByRole("radio", { name: /Keep the albums/ }).check();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(status("Took")).toHaveText("Took Electronic off its albums");
+  await expect(heading("Albums")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Electronic", exact: true })).toHaveCount(0);
+
+  // An artist deleted with their music; where they were only a guest, the track stays.
+  await artist("Mira Vale");
+  await menu("Mira Vale", "Delete artist");
+  dialog = page.getByRole("dialog", { name: "Delete artist" });
+  await dialog.getByRole("radio", { name: /Delete them with their music/ }).check();
+  await expectAccessible(page);
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(status("Deleted")).toHaveText("Deleted Mira Vale");
+  await expect(heading("Artists")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Mira Vale", exact: true })).toHaveCount(0);
+  await page.goto("/albums?sort=title");
+  await page.getByRole("link", { name: "Northern Lights", exact: true }).click();
+  const shared = page.getByRole("table").getByRole("row").filter({ hasText: "Shared Sky" });
+  await expect(shared.getByRole("link")).toHaveText(["Aurora Fields"]);
+
+  // An artist's everything given to another.
+  await artist("Glass Harbor");
+  await menu("Glass Harbor", "Delete artist");
+  dialog = page.getByRole("dialog", { name: "Delete artist" });
+  await dialog.getByRole("radio", { name: /Give everything/ }).check();
+  await dialog.getByRole("searchbox", { name: "Find an artist" }).fill("aurora");
+  await dialog.getByRole("radio", { name: /Aurora Fields/ }).check();
+  await dialog.getByRole("button", { name: "Give" }).click();
+  await expect(status("Merged")).toHaveText("Merged into Aurora Fields");
+  await expect(heading("Aurora Fields")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Live Sessions", exact: true })).toBeVisible();
 
   // The files say what the library shows: nothing new for a scan to read.
   expect(await scanned(baseURL!)).toMatchObject({

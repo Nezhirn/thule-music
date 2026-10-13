@@ -4,7 +4,14 @@
   margin-bottom: 24px;
 }
 
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .title {
+  min-width: 0;
   font-size: var(--text-2xl);
   font-weight: 750;
   letter-spacing: -0.02em;

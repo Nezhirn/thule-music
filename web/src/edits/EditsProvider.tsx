@@ -11,13 +11,27 @@ import { AlbumDialog } from "./AlbumDialog";
 import { createAlbumUploads } from "./albumUploads";
 import { ArtistDialog } from "./ArtistDialog";
 import { CoverDialog } from "./CoverDialog";
-import { EditsContext, type CoverSubject, type Edits, type MoveSubject } from "./context";
-import { DeleteAlbumDialog, DeleteTrackDialog } from "./DeleteDialogs";
+import {
+  EditsContext,
+  type AlbumsMoveSubject,
+  type CoverSubject,
+  type Edits,
+  type GenreSubject,
+  type MoveSubject,
+} from "./context";
+import {
+  DeleteAlbumDialog,
+  DeleteArtistDialog,
+  DeleteGenreDialog,
+  DeleteTrackDialog,
+} from "./DeleteDialogs";
+import { GenreDialog } from "./GenreDialog";
 import { LyricsDialog } from "./LyricsDialog";
+import { MoveAlbumsDialog } from "./MoveAlbumsDialog";
 import { MoveDialog } from "./MoveDialog";
 import { libraryEdited } from "./queries";
 import { TrackDialog } from "./TrackDialog";
-import { UploadDialog } from "./UploadDialog";
+import { ArtistUploadDialog, UploadDialog } from "./UploadDialog";
 
 /** The dialog open, with what it is about. */
 type Editing =
@@ -29,7 +43,12 @@ type Editing =
   | { kind: "track"; track: Track }
   | { kind: "move"; subject: MoveSubject }
   | { kind: "deleteTrack"; track: Track }
-  | { kind: "artist"; artist: Schemas["ArtistRef"] };
+  | { kind: "artist"; artist: Schemas["ArtistRef"] }
+  | { kind: "artistUpload"; artist: Schemas["ArtistRef"] }
+  | { kind: "moveAlbums"; subject: AlbumsMoveSubject }
+  | { kind: "deleteArtist"; artist: Schemas["ArtistDetail"] }
+  | { kind: "genre"; genre: GenreSubject }
+  | { kind: "deleteGenre"; genre: GenreSubject };
 
 /** The dialogs in which admins manage the library, for the menus of the pages inside. */
 export function EditsProvider({ children }: { children: ReactNode }) {
@@ -48,6 +67,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     moveTracks: (subject) => setEditing({ kind: "move", subject }),
     deleteTrack: (track) => setEditing({ kind: "deleteTrack", track }),
     renameArtist: (artist) => setEditing({ kind: "artist", artist }),
+    uploadToArtist: (artist) => setEditing({ kind: "artistUpload", artist }),
+    moveAlbums: (subject) => setEditing({ kind: "moveAlbums", subject }),
+    deleteArtist: (artist) => setEditing({ kind: "deleteArtist", artist }),
+    renameGenre: (genre) => setEditing({ kind: "genre", genre }),
+    deleteGenre: (genre) => setEditing({ kind: "deleteGenre", genre }),
     uploads: createAlbumUploads({ send: sendToAlbum }),
   }));
   // Once the uploads into albums are all done, wherever the admin is in the app.
@@ -81,6 +105,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
           <MoveDialog subject={of("move")?.subject ?? null} onClose={close} />
           <DeleteTrackDialog track={of("deleteTrack")?.track ?? null} onClose={close} />
           <ArtistDialog artist={of("artist")?.artist ?? null} onClose={close} />
+          <ArtistUploadDialog artist={of("artistUpload")?.artist ?? null} onClose={close} />
+          <MoveAlbumsDialog subject={of("moveAlbums")?.subject ?? null} onClose={close} />
+          <DeleteArtistDialog artist={of("deleteArtist")?.artist ?? null} onClose={close} />
+          <GenreDialog genre={of("genre")?.genre ?? null} onClose={close} />
+          <DeleteGenreDialog genre={of("deleteGenre")?.genre ?? null} onClose={close} />
         </>
       )}
     </EditsContext>

@@ -2,7 +2,7 @@
 
 import base64
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -131,18 +131,48 @@ def split_featured(text: str) -> tuple[str, list[str]]:
     return main.strip(), [name for name in (n.strip() for n in featured) if name]
 
 
+def _edit_featured(title: str, change: Callable[[str], str | None]) -> str:
+    """The title with each artist it features ("Song (feat. A & B)", "Song feat. A") passed
+    through `change`: a new name, or None to leave them out. The brackets and separators
+    stay; "feat." with no one left goes."""
+
+    def names(text: str) -> str:
+        # Names and the separators between them.
+        parts = re.split(f"({_AND.pattern})", text)
+        kept: list[str] = []
+        for i in range(0, len(parts), 2):
+            name = change(parts[i])
+            if name is None:
+                continue
+            if kept:
+                kept.append(parts[i - 1])
+            kept.append(name)
+        return "".join(kept)
+
+    def bracket(match: re.Match[str]) -> str:
+        inner = names(match.group(1))
+        if not inner:
+            return ""
+        start, end = match.start(1) - match.start(0), match.end(1) - match.start(0)
+        return match.group(0)[:start] + inner + match.group(0)[end:]
+
+    title = _FEAT_BRACKETS.sub(bracket, title)
+    if (match := _FEAT.search(title)) is None:
+        return title
+    rest = names(title[match.end() :])
+    return title[: match.end()] + rest if rest else title[: match.start()]
+
+
 def rename_featured(title: str, old: str, new: str) -> str:
     """The title with an artist it features renamed: "Song (feat. Old)" -> "Song (feat.
     New)". Other titles stay as they are."""
+    return _edit_featured(title, lambda name: new if name_key(name) == name_key(old) else name)
 
-    def rename(match: re.Match[str]) -> str:
-        # Names and the separators between them, which stay as they are.
-        parts = re.split(f"({_AND.pattern})", match.group(1))
-        parts[::2] = [new if name_key(n) == name_key(old) else n for n in parts[::2]]
-        start, end = match.start(1) - match.start(0), match.end(1) - match.start(0)
-        return match.group(0)[:start] + "".join(parts) + match.group(0)[end:]
 
-    return _FEAT_BRACKETS.sub(rename, title)
+def remove_featured(title: str, artist: str) -> str:
+    """The title without an artist it features: "Song (feat. A & B)" -> "Song (feat. B)",
+    "Song (feat. A)" -> "Song". Other titles stay as they are."""
+    return _edit_featured(title, lambda name: None if name_key(name) == name_key(artist) else name)
 
 
 def _credits(artist_values: list[str], title: str | None) -> list[str]:

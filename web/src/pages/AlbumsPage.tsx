@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Disc3 } from "lucide-react";
+import { Disc3, FolderInput, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { GenreLinks } from "../catalog/GenreLinks";
@@ -8,8 +8,11 @@ import { LoadMore } from "../catalog/LoadMore";
 import { PageLoading } from "../catalog/PageStatus";
 import { ALBUM_SORTS, albumsQuery, genresQuery, pick, type AlbumSort } from "../catalog/queries";
 import { SortSelect } from "../catalog/SortSelect";
+import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
 import { EmptyState } from "../ui/EmptyState";
+import iconButton from "../ui/IconButton.module.css";
+import { Menu, MenuItem } from "../ui/Menu";
 import { PageHeader } from "../ui/PageHeader";
 import grid from "../catalog/Grid.module.css";
 import styles from "./CatalogPage.module.css";
@@ -23,6 +26,7 @@ export function AlbumsPage() {
   const genre = params.get("genre");
   const albums = useInfiniteQuery(albumsQuery(sort, genre));
   const genres = useQuery(genresQuery);
+  const edits = useEdits();
 
   const address = (change: { sort?: AlbumSort; genre?: string | null }) => {
     const next = new URLSearchParams(params);
@@ -34,11 +38,37 @@ export function AlbumsPage() {
   };
 
   const total = albums.data?.pages[0]?.total;
+  // The genre as the list spells it.
+  const name = genres.data?.find((g) => g.name.toLowerCase() === genre?.toLowerCase())?.name;
+  const subject = genre && total ? { name: name ?? genre, albumCount: total } : null;
   return (
     <>
       <PageHeader
         title={genre ?? t.nav.albums}
         documentTitle={genre ? `${genre} — ${t.nav.albums}` : t.nav.albums}
+        actions={
+          edits &&
+          subject && (
+            <Menu
+              label={t.player.trackActions(subject.name)}
+              trigger={<MoreHorizontal className={iconButton.icon} />}
+              triggerClassName={`${iconButton.button} ${iconButton.md}`}
+            >
+              <MenuItem icon={Pencil} onSelect={() => edits.renameGenre(subject)}>
+                {t.edits.renameGenre}
+              </MenuItem>
+              <MenuItem
+                icon={FolderInput}
+                onSelect={() => edits.moveAlbums({ kind: "genre", genre: subject })}
+              >
+                {t.edits.moveAlbums}
+              </MenuItem>
+              <MenuItem icon={Trash2} onSelect={() => edits.deleteGenre(subject)}>
+                {t.edits.deleteGenre}
+              </MenuItem>
+            </Menu>
+          )
+        }
       >
         {total !== undefined && t.catalog.albums(total)}
       </PageHeader>

@@ -1,5 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { MoreHorizontal, Pencil, Shuffle } from "lucide-react";
+import {
+  FolderInput,
+  ImagePlus,
+  MoreHorizontal,
+  Pencil,
+  Shuffle,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
@@ -80,6 +88,26 @@ export function ArtistPage() {
               >
                 <MenuItem icon={Pencil} onSelect={() => edits.renameArtist(artist)}>
                   {t.edits.renameArtist}
+                </MenuItem>
+                <MenuItem
+                  icon={ImagePlus}
+                  onSelect={() => edits.editCover({ kind: "artist", artist })}
+                >
+                  {t.edits.changePicture}
+                </MenuItem>
+                <MenuItem icon={Upload} onSelect={() => edits.uploadToArtist(artist)}>
+                  {t.edits.uploadAlbum}
+                </MenuItem>
+                {artist.albums.length > 0 && (
+                  <MenuItem
+                    icon={FolderInput}
+                    onSelect={() => edits.moveAlbums({ kind: "artist", artist })}
+                  >
+                    {t.edits.moveAlbums}
+                  </MenuItem>
+                )}
+                <MenuItem icon={Trash2} onSelect={() => edits.deleteArtist(artist)}>
+                  {t.edits.deleteArtist}
                 </MenuItem>
               </Menu>
             )}

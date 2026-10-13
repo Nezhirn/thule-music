@@ -1,5 +1,6 @@
-"""Admins manage the library: albums renamed or deleted, tracks edited, moved to another
-album, uploaded into one or deleted, artists renamed.
+"""Admins manage the library: albums renamed, given to another artist or deleted, tracks
+edited, moved to another album, uploaded into one or deleted, artists renamed or deleted,
+genres renamed or taken off.
 
 Every change goes into the files first (tags, folders), and the changed files are imported
 again at once: the library shows what a scan of the folder would, and a later scan changes
@@ -14,9 +15,9 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Annotated, Self
 
-from fastapi import APIRouter, Query, UploadFile, status
+from fastapi import APIRouter, Form, Query, UploadFile, status
 from pydantic import Field, StringConstraints, model_validator
-from sqlalchemy import ColumnElement, Uuid, literal, select, update
+from sqlalchemy import ColumnElement, Uuid, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -43,10 +44,16 @@ from app.library.queries import (
     track_select,
     tracks_out,
 )
-from app.library.tags import UNKNOWN_ARTIST, UnreadableAudio, read_tags, rename_featured
+from app.library.tags import (
+    UNKNOWN_ARTIST,
+    UnreadableAudio,
+    read_tags,
+    remove_featured,
+    rename_featured,
+)
 from app.library.tagwrite import TagsNotWritable, Values, can_write, write_tags
 from app.me.models import AlbumLike, ArtistLike
-from app.schemas import AlbumOut, ApiModel, ArtistOut, TrackOut
+from app.schemas import AlbumOut, ApiModel, ArtistOut, GenreOut, TrackOut
 
 manage_router = APIRouter(tags=["admin"])
 
@@ -94,11 +101,33 @@ class ArtistPatch(ApiModel):
     name: Name
 
 
+class AlbumsMove(ApiModel):
+    album_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    # The artist they go to: one of the library, or a new one.
+    artist: Name
+
+
+class AlbumsGenre(ApiModel):
+    album_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    genre: Genre
+
+
+class GenrePatch(ApiModel):
+    name: Genre
+
+
 class AlbumDeletion(enum.StrEnum):
     # The tracks' files are deleted from the disk.
     delete = "delete"
     # Each track becomes a single of its artist, titled after it; the files stay.
     singles = "singles"
+
+
+class GenreDeletion(enum.StrEnum):
+    # The albums stay, without a genre.
+    keep = "keep"
+    # The files of the albums' tracks are deleted from the disk.
+    delete = "delete"
 
 
 class AlbumUpload(ApiModel):
@@ -127,6 +156,22 @@ async def _album(session: AsyncSession, album_id: uuid.UUID) -> Album:
     if album is None:
         raise ApiError(ErrorCode.album_not_found)
     return album
+
+
+async def _albums(session: AsyncSession, album_ids: list[uuid.UUID]) -> list[Album]:
+    albums = list(
+        await session.scalars(select(Album).where(Album.id.in_(album_ids)).options(*ALBUM_LOAD))
+    )
+    if len(albums) != len(set(album_ids)):
+        raise ApiError(ErrorCode.unknown_albums)
+    return albums
+
+
+async def _artist(session: AsyncSession, artist_id: uuid.UUID) -> Artist:
+    artist = await session.get(Artist, artist_id)
+    if artist is None:
+        raise ApiError(ErrorCode.artist_not_found)
+    return artist
 
 
 async def _tracks(session: AsyncSession, *where: ColumnElement[bool]) -> list[Track]:
@@ -243,6 +288,15 @@ def _album_folder(settings: Settings, tracks: list[Track], disc_no: int | None) 
     its first track."""
     same_disc = [t for t in tracks if t.disc_no == disc_no and disc_no is not None]
     return _path(settings, (same_disc or tracks)[0]).parent
+
+
+def _new_album_folder(settings: Settings, artist: str, title: str) -> Path:
+    """Where the files of a new album go: "<artist>/<title>/"."""
+    return (
+        settings.library_path.resolve()
+        / (files.safe_part(artist) or "Unknown Artist")
+        / (files.safe_part(title) or "Unknown Album")
+    )
 
 
 def _album_values(album: Album) -> dict[str, str | list[str] | None]:
@@ -404,32 +458,97 @@ async def upload_to_album(
     once. MP3, FLAC, Ogg, Opus or M4A: the formats whose tags can be written."""
     album = await _album(session, album_id)
     tracks = await _tracks(session, Track.album_id == album.id)
+    folder = _album_folder(settings, tracks, None)
+    return await _upload(
+        session, settings, admin, file, folder, _album_values(album), album.artist.name, tracks
+    )
+
+
+@manage_router.post(
+    "/artists/{artist_id}/tracks",
+    response_model=AlbumUpload,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_to_artist(
+    artist_id: uuid.UUID,
+    file: UploadFile,
+    album: Annotated[Name, Form()],
+    session: SessionDep,
+    settings: SettingsDep,
+    admin: AdminUser,
+    year: Annotated[int | None, Form(ge=1000, le=9999)] = None,
+    genre: Annotated[Genre | None, Form()] = None,
+) -> AlbumUpload:
+    """Adds an audio file to the artist's album titled `album`, as upload_to_album does. With
+    no such album yet, it is a new one: the file goes to "<artist>/<album>/", tagged with the
+    title, the artist, and `year` and `genre` if given."""
+    artist = await _artist(session, artist_id)
+    existing = await session.scalar(
+        select(Album)
+        .where(Album.artist_id == artist.id, Album.title_key == name_key(album))
+        .options(*ALBUM_LOAD)
+    )
+    if existing is not None:
+        tracks = await _tracks(session, Track.album_id == existing.id)
+        folder = _album_folder(settings, tracks, None)
+        values = _album_values(existing)
+    else:
+        tracks = []
+        folder = _new_album_folder(settings, artist.name, album)
+        values = {"album": album, "albumartist": artist.name}
+        if year is not None:
+            values["date"] = str(year)
+        if genre is not None:
+            values["genre"] = genre
+    return await _upload(session, settings, admin, file, folder, values, artist.name, tracks)
+
+
+async def _upload(
+    session: AsyncSession,
+    settings: Settings,
+    admin: AdminUser,
+    file: UploadFile,
+    folder: Path,
+    values: dict[str, str | list[str] | None],
+    artist: str,
+    tracks: list[Track],
+) -> AlbumUpload:
+    """Saves the file into `folder` and tags it with `values`; also with `artist` if it names
+    none, and the number after `tracks`' if it has none. A file the library already has is
+    not kept."""
     name = files.safe_name(file.filename or "upload")
     if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
         raise ApiError(ErrorCode.not_an_audio_file, f"Can't upload {file.filename}")
     if not can_write(Path(name)):
         raise ApiError(ErrorCode.tags_not_writable, f"Can't write tags to {file.filename}")
 
-    folder = _album_folder(settings, tracks, None)
+    # A folder made for it goes again if the file isn't kept.
+    fresh = not await asyncio.to_thread(folder.exists)
     await files.write(folder.mkdir, parents=True, exist_ok=True)
     dest, digest = await files.write(files.save_upload, file.file, folder, name)
+
+    async def give_up() -> None:
+        dest.unlink(missing_ok=True)
+        if fresh:
+            await asyncio.to_thread(files.prune, folder, settings.library_path)
+
     try:
         same = await _same_track(session, settings, dest, digest)
         if same is not None:
-            await asyncio.to_thread(dest.unlink)
+            await give_up()
             return AlbumUpload(track=await _track_out(session, admin, same), duplicate=True)
         try:
             tags = await asyncio.to_thread(read_tags, dest, lyrics=False)
         except UnreadableAudio as exc:
             raise ApiError(ErrorCode.not_an_audio_file, str(exc)) from exc
-        values = _album_values(album)
+        values = dict(values)
         if tags.artists == [UNKNOWN_ARTIST]:
-            values["artist"] = album.artist.name
+            values["artist"] = artist
         if tags.track_no is None:
             values["tracknumber"] = str(max((t.track_no or 0 for t in tracks), default=0) + 1)
         await _write_tags(dest, values)
     except BaseException:
-        dest.unlink(missing_ok=True)
+        await give_up()
         raise
     (imported,) = await _reimport(session, settings, [_rel(settings, dest)], transcode=True)
     await session.commit()
@@ -528,11 +647,7 @@ async def move_tracks(
         assert body.new_album is not None
         new = body.new_album
         values = {"album": new.title, "albumartist": new.artist}
-        new_folder = (
-            settings.library_path.resolve()
-            / (files.safe_part(new.artist) or "Unknown Artist")
-            / (files.safe_part(new.title) or "Unknown Album")
-        )
+        new_folder = _new_album_folder(settings, new.artist, new.title)
 
         def folder(track: Track) -> Path:
             return new_folder
@@ -560,6 +675,54 @@ async def move_tracks(
     return await _album_out(session, admin, result)
 
 
+@manage_router.post("/albums/move", response_model=ArtistOut)
+async def move_albums(
+    body: AlbumsMove, session: SessionDep, settings: SettingsDep, admin: AdminUser
+) -> ArtistOut:
+    """Gives albums to another artist, one of the library or a new one: in their tracks'
+    tags the album artist changes, and so does the track artist where it was the album's
+    ("feat." in titles too). An album with the title of one of theirs is merged into it. The
+    files stay where they are. Returns that artist."""
+    albums = await _albums(session, body.album_ids)
+    new = body.artist
+    moving = [a for a in albums if a.artist.name_key != name_key(new)]
+    owner = {a.id: a.artist for a in moving}
+    tracks = await _tracks(session, Track.album_id.in_(list(owner)))
+
+    def values(track: Track) -> Values:
+        old = owner[track.album_id]
+        changed: dict[str, str | list[str] | None] = {"albumartist": new}
+        if any(c.artist_id == old.id for c in track.credits):
+            names = [new if c.artist_id == old.id else c.artist.name for c in track.credits]
+            changed["artist"] = _unique(names)
+            if (title := rename_featured(track.title, old.name, new)) != track.title:
+                changed["title"] = title
+        return changed
+
+    await _retag(session, settings, tracks, values)
+    artist_id = await upsert_artist(session, new)
+    for album in moving:
+        twin = await session.scalar(
+            select(Album).where(
+                Album.artist_id == artist_id,
+                Album.title_key == album.title_key,
+                Album.id != album.id,
+            )
+        )
+        if twin is None:
+            album.artist_id = artist_id
+        else:
+            await _move_likes(session, AlbumLike.album_id, album.id, twin.id)
+        await session.flush()
+    await _reimport(session, settings, [t.path for t in tracks])
+    await session.commit()
+    artist = await session.scalar(
+        select(Artist).where(Artist.id == artist_id).execution_options(populate_existing=True)
+    )
+    assert artist is not None
+    return (await artists_out(session, admin.id, [artist]))[0]
+
+
 # --- artists -------------------------------------------------------------------------------
 
 
@@ -574,9 +737,7 @@ async def rename_artist(
     """Renames the artist in the tags of every track crediting them and every track of
     their albums ("feat." in titles too). Given another artist's name, they are merged into
     that one (the result has its id), their albums with the same titles too."""
-    artist = await session.get(Artist, artist_id)
-    if artist is None:
-        raise ApiError(ErrorCode.artist_not_found)
+    artist = await _artist(session, artist_id)
     if body.name == artist.name:
         return (await artists_out(session, admin.id, [artist]))[0]
 
@@ -613,6 +774,36 @@ async def rename_artist(
     return (await artists_out(session, admin.id, [result]))[0]
 
 
+@manage_router.delete("/artists/{artist_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_artist(
+    artist_id: uuid.UUID, session: SessionDep, settings: SettingsDep, _: AdminUser
+) -> None:
+    """Deletes from the disk the files of the artist's tracks and of their albums (and the
+    folders left without music). Tracks of others that only feature them stay: the artist
+    leaves their tags ("feat." in titles too). To keep the tracks, give them to another
+    artist instead: rename_artist with that one's name."""
+    artist = await _artist(session, artist_id)
+    theirs = select(Album.id).where(Album.artist_id == artist.id)
+    doomed = await _tracks(session, (Track.artist_id == artist.id) | Track.album_id.in_(theirs))
+    credited = select(TrackArtist.track_id).where(TrackArtist.artist_id == artist.id)
+    featuring = await _tracks(
+        session, Track.id.in_(credited), Track.id.not_in([t.id for t in doomed])
+    )
+
+    def uncredited(track: Track) -> Values:
+        changed: dict[str, str | list[str] | None] = {
+            "artist": [c.artist.name for c in track.credits if c.artist_id != artist.id]
+        }
+        if (title := remove_featured(track.title, artist.name)) != track.title:
+            changed["title"] = title
+        return changed
+
+    # First, so nothing is deleted if their name can't leave those tracks' files.
+    await _retag(session, settings, featuring, uncredited)
+    await _reimport(session, settings, [t.path for t in featuring])
+    await _delete_files(session, settings, doomed)
+
+
 async def _merge_artist(session: AsyncSession, artist: Artist, other: Artist) -> None:
     """Gives `other` what is `artist`'s, before the files are imported again: their albums
     (merged into `other`'s of the same title), credits and likes. So albums keep their ids
@@ -635,3 +826,83 @@ async def _merge_artist(session: AsyncSession, artist: Artist, other: Artist) ->
         update(TrackArtist).where(TrackArtist.artist_id == artist.id).values(artist_id=other.id)
     )
     await _move_likes(session, ArtistLike.artist_id, artist.id, other.id)
+    if other.cover_id is None:
+        other.cover_id = artist.cover_id
+
+
+# --- genres --------------------------------------------------------------------------------
+
+
+async def _genre_albums(session: AsyncSession, genre: str) -> list[Album]:
+    """The genre's albums; spellings differing only in case are one genre, as in the list."""
+    albums = list(
+        await session.scalars(
+            select(Album).where(func.lower(Album.genre) == genre.casefold()).options(*ALBUM_LOAD)
+        )
+    )
+    if not albums:
+        raise ApiError(ErrorCode.genre_not_found)
+    return albums
+
+
+async def _genre_out(session: AsyncSession, name: str) -> GenreOut:
+    count = await session.scalar(
+        select(func.count()).select_from(Album).where(func.lower(Album.genre) == name.casefold())
+    )
+    return GenreOut(name=name, album_count=count or 0)
+
+
+async def _set_genre(
+    session: AsyncSession, settings: Settings, albums: list[Album], genre: str | None
+) -> None:
+    """Writes the genre (None takes it off) into the tags of the albums' tracks."""
+    changing = [a for a in albums if a.genre != genre]
+    tracks = await _tracks(session, Track.album_id.in_([a.id for a in changing]))
+    await _retag(session, settings, tracks, lambda _: {"genre": genre})
+    for album in changing:
+        album.genre = genre
+    await session.flush()
+    await _reimport(session, settings, [t.path for t in tracks])
+    await session.commit()
+
+
+@manage_router.patch("/genres", response_model=GenreOut)
+async def rename_genre(
+    genre: Annotated[str, Query(min_length=1)],
+    body: GenrePatch,
+    session: SessionDep,
+    settings: SettingsDep,
+    _: AdminUser,
+) -> GenreOut:
+    """Renames the genre in the tags of its albums' tracks. The name of another genre merges
+    the two."""
+    await _set_genre(session, settings, await _genre_albums(session, genre), body.name)
+    return await _genre_out(session, body.name)
+
+
+@manage_router.post("/albums/genre", response_model=GenreOut)
+async def set_albums_genre(
+    body: AlbumsGenre, session: SessionDep, settings: SettingsDep, _: AdminUser
+) -> GenreOut:
+    """Moves albums into a genre, one of the library or a new one: in their tracks' tags.
+    Returns that genre."""
+    await _set_genre(session, settings, await _albums(session, body.album_ids), body.genre)
+    return await _genre_out(session, body.genre)
+
+
+@manage_router.delete("/genres", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_genre(
+    genre: Annotated[str, Query(min_length=1)],
+    albums: Annotated[GenreDeletion, Query()],
+    session: SessionDep,
+    settings: SettingsDep,
+    _: AdminUser,
+) -> None:
+    """`albums=keep` takes the genre off its albums' tracks; `albums=delete` deletes their
+    files from the disk (and the folders left without music)."""
+    found = await _genre_albums(session, genre)
+    if albums == GenreDeletion.keep:
+        await _set_genre(session, settings, found, None)
+    else:
+        tracks = await _tracks(session, Track.album_id.in_([a.id for a in found]))
+        await _delete_files(session, settings, tracks)

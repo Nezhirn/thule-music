@@ -101,6 +101,8 @@ class ArtistOut(ApiModel):
 
 
 class ArtistDetail(ArtistOut):
+    # An admin chose the picture; otherwise it is the cover of their newest album.
+    cover_custom: bool = False
     albums: list[AlbumOut]
     # Other artists' albums with tracks crediting this one: compilations, features.
     appears_on: list[AlbumOut]

@@ -111,6 +111,7 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
     (base,) = await artists_out(session, user.id, [artist])
     return ArtistDetail(
         **base.model_dump(),
+        cover_custom=artist.cover_id is not None,
         albums=await albums_out(session, user.id, albums),
         appears_on=await albums_out(session, user.id, appears_on),
         top_tracks=await tracks_out(session, user.id, top),

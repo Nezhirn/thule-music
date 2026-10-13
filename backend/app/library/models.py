@@ -35,7 +35,11 @@ class Artist(UUIDPk, Base):
 
     name: Mapped[str] = mapped_column(String(512))
     name_key: Mapped[str] = mapped_column(String(512), unique=True)
+    # A picture an admin chose; without one, the cover of their newest album stands in.
+    cover_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("covers.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    cover: Mapped[Cover | None] = relationship(lazy="raise")
 
     __table_args__ = (
         Index(
