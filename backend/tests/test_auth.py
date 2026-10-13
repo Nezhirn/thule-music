@@ -5,7 +5,8 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select, update
 
-from app.auth.models import LoginFailure
+from app.auth.models import LoginFailure, RefreshToken
+from app.auth.router import REFRESH_REUSE_GRACE
 from app.config import Settings
 from tests.conftest import register_and_login
 
@@ -74,7 +75,18 @@ async def test_login_and_me(client, admin):
     assert garbage.status_code == 401
 
 
-async def test_refresh_rotation_and_reuse_detection(client):
+async def _age_rotation(sessionmaker) -> None:
+    """Moves every rotation back past the grace period."""
+    async with sessionmaker() as session:
+        await session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.revoked_at.is_not(None))
+            .values(revoked_at=RefreshToken.revoked_at - REFRESH_REUSE_GRACE)
+        )
+        await session.commit()
+
+
+async def test_refresh_rotation_and_reuse_detection(client, sessionmaker):
     await register_and_login(client, "admin", "admin-password")
     login = (
         await client.post("/auth/login", json={"username": "admin", "password": "admin-password"})
@@ -86,12 +98,29 @@ async def test_refresh_rotation_and_reuse_detection(client):
     assert rotated != login["refresh_token"]
 
     # Replaying the old token is treated as theft and kills every session...
+    await _age_rotation(sessionmaker)
     replay = await client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]})
     assert replay.status_code == 401
     assert replay.json()["code"] == "refresh_token_reused"
     # ...including the freshly rotated one.
     after = await client.post("/auth/refresh", json={"refresh_token": rotated})
     assert after.status_code == 401
+
+
+async def test_replay_right_after_rotation_is_a_race_not_theft(client):
+    """Two tabs refreshing with the same token at once: the second is refused, but the
+    session lives on with the token the first one got."""
+    await register_and_login(client, "admin", "admin-password")
+    login = (
+        await client.post("/auth/login", json={"username": "admin", "password": "admin-password"})
+    ).json()
+    first = await client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    second = await client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    assert second.status_code == 401
+    assert second.json()["code"] == "refresh_token_rotated"
+    current = first.json()["refresh_token"]
+    after = await client.post("/auth/refresh", json={"refresh_token": current})
+    assert after.status_code == 200
 
 
 async def test_logout_revokes_refresh_token(client):

@@ -43,6 +43,12 @@ MAX_AVATAR_BYTES = 10 * 1024 * 1024
 MAX_LOGIN_FAILURES = 10
 LOGIN_FAILURE_WINDOW = timedelta(minutes=15)
 
+# A rotated refresh token presented again within this time is a race, not theft: another
+# tab of the same browser refreshing at the same moment (browsers allow cross-tab locks only
+# over HTTPS), or a retry after the response was lost. It is refused without ending every
+# session; the client picks up the new token its other tab stored.
+REFRESH_REUSE_GRACE = timedelta(seconds=30)
+
 # Serialises registrations, so two concurrent first sign-ups can't both become admin.
 _REGISTER_LOCK = 0x7468_756C  # "thul"
 
@@ -138,7 +144,8 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
 @router.post("/refresh", response_model=TokenPair)
 async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: SettingsDep) -> TokenPair:
     """Rotates the refresh token. Presenting an already-rotated token is treated as
-    theft: every session of that user is revoked. A token revoked by logout or a password
+    theft: every session of that user is revoked (unless it was rotated in the last
+    REFRESH_REUSE_GRACE: `refresh_token_rotated`). A token revoked by logout or a password
     change is just rejected."""
     token = await session.scalar(
         select(RefreshToken)
@@ -152,6 +159,8 @@ async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: Setting
     if token.revoked_at is not None:
         if not token.rotated:
             raise ApiError(ErrorCode.invalid_refresh_token)
+        if now - token.revoked_at < REFRESH_REUSE_GRACE:
+            raise ApiError(ErrorCode.refresh_token_rotated)
         await _revoke_sessions(session, token.user_id)
         await session.commit()
         raise ApiError(ErrorCode.refresh_token_reused)

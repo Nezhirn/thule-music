@@ -31,6 +31,7 @@ class ErrorCode(enum.StrEnum):
     invalid_credentials = "invalid_credentials"
     too_many_login_attempts = "too_many_login_attempts"
     invalid_refresh_token = "invalid_refresh_token"
+    refresh_token_rotated = "refresh_token_rotated"
     refresh_token_reused = "refresh_token_reused"
     refresh_token_expired = "refresh_token_expired"
     user_not_found = "user_not_found"
@@ -66,6 +67,7 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.invalid_credentials: (401, "Invalid username or password"),
     ErrorCode.too_many_login_attempts: (429, "Too many failed logins, try again later"),
     ErrorCode.invalid_refresh_token: (401, "Invalid refresh token"),
+    ErrorCode.refresh_token_rotated: (401, "Refresh token was just rotated"),
     ErrorCode.refresh_token_reused: (401, "Refresh token reuse detected"),
     ErrorCode.refresh_token_expired: (401, "Refresh token expired"),
     ErrorCode.user_not_found: (404, "User not found"),
