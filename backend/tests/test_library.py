@@ -1,6 +1,6 @@
 import pytest
 
-from app.library.importer import resolve_in_library
+from app.library.importer import _walk, resolve_in_library
 
 
 async def scan(client, admin, run_jobs) -> None:
@@ -161,3 +161,13 @@ def test_resolve_in_library_blocks_traversal(tmp_path):
         resolve_in_library(tmp_path, "../etc/passwd")
     assert resolve_in_library(tmp_path, "a/b.mp3") == (tmp_path / "a/b.mp3").resolve()
 
+
+def test_scan_follows_symlinks_but_not_cycles(tmp_path):
+    root = tmp_path / "library"
+    (root / "A").mkdir(parents=True)
+    (root / "A" / "1.mp3").touch()
+    (root / "A" / "back").symlink_to(root)  # cycle
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "2.flac").touch()
+    (root / "B").symlink_to(tmp_path / "elsewhere")  # regular linked folder
+    assert set(_walk(root)) == {"A/1.mp3", "B/2.flac"}

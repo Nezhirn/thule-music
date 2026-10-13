@@ -32,7 +32,21 @@ def resolve_in_library(library_root: Path, rel_path: str) -> Path:
 
 def _walk(root: Path) -> dict[str, tuple[int, float]]:
     found: dict[str, tuple[int, float]] = {}
+    # (st_dev, st_ino) of the directories from the root down to each visited one. Symlinks
+    # are followed, so a link back to an ancestor would otherwise repeat the subtree.
+    ancestry: dict[str, frozenset[tuple[int, int]]] = {}
     for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        try:
+            dir_st = os.stat(dirpath)
+        except OSError:
+            dirnames[:] = []
+            continue
+        dir_id = (dir_st.st_dev, dir_st.st_ino)
+        above = ancestry.get(os.path.dirname(dirpath), frozenset())
+        if dir_id in above:
+            dirnames[:] = []
+            continue
+        ancestry[dirpath] = above | {dir_id}
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         for name in filenames:
             if name.startswith(".") or Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
