@@ -45,6 +45,7 @@ class ErrorCode(enum.StrEnum):
     album_not_found = "album_not_found"
     track_not_found = "track_not_found"
     not_an_audio_file = "not_an_audio_file"
+    tags_not_writable = "tags_not_writable"
     invalid_stream_signature = "invalid_stream_signature"
     audio_file_missing = "audio_file_missing"
     cover_not_found = "cover_not_found"
@@ -83,6 +84,7 @@ _ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.album_not_found: (404, "Album not found"),
     ErrorCode.track_not_found: (404, "Track not found"),
     ErrorCode.not_an_audio_file: (415, "Not an audio file, cover image or lyrics file"),
+    ErrorCode.tags_not_writable: (415, "Tags can't be written to this file's format"),
     ErrorCode.invalid_stream_signature: (401, "Missing or invalid signature"),
     ErrorCode.audio_file_missing: (404, "Audio file is missing on disk"),
     ErrorCode.cover_not_found: (404, "Cover not found"),

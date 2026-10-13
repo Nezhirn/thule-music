@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ImagePlus, Shuffle } from "lucide-react";
+import { FolderInput, ImagePlus, Pencil, Shuffle, Trash2, Upload } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { Cover } from "../catalog/Cover";
@@ -15,7 +15,7 @@ import { usePlayerControls } from "../player/context";
 import { PlayButton } from "../player/PlayButton";
 import { CollectionActions } from "../player/TrackActions";
 import { IconButton } from "../ui/IconButton";
-import { MenuItem } from "../ui/Menu";
+import { MenuItem, MenuSeparator } from "../ui/Menu";
 import styles from "./CatalogPage.module.css";
 
 export function AlbumPage() {
@@ -60,12 +60,30 @@ export function AlbumPage() {
             <FavouriteButton kind="album" item={album} name={album.title} />
             <CollectionActions name={album.title} tracks={album.tracks}>
               {edits && (
-                <MenuItem
-                  icon={ImagePlus}
-                  onSelect={() => edits.editCover({ kind: "album", album })}
-                >
-                  {t.edits.changeCover}
-                </MenuItem>
+                <>
+                  <MenuSeparator />
+                  <MenuItem icon={Pencil} onSelect={() => edits.editAlbum(album)}>
+                    {t.edits.editAlbum}
+                  </MenuItem>
+                  <MenuItem
+                    icon={ImagePlus}
+                    onSelect={() => edits.editCover({ kind: "album", album })}
+                  >
+                    {t.edits.changeCover}
+                  </MenuItem>
+                  <MenuItem icon={Upload} onSelect={() => edits.uploadToAlbum(album)}>
+                    {t.edits.uploadTracks}
+                  </MenuItem>
+                  <MenuItem
+                    icon={FolderInput}
+                    onSelect={() => edits.moveTracks({ tracks: album.tracks, selected: [] })}
+                  >
+                    {t.edits.moveTracks}
+                  </MenuItem>
+                  <MenuItem icon={Trash2} onSelect={() => edits.deleteAlbum(album, album.tracks)}>
+                    {t.edits.deleteAlbum}
+                  </MenuItem>
+                </>
               )}
             </CollectionActions>
           </>

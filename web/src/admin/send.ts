@@ -13,17 +13,56 @@ export class UnreadableFile extends Error {
 }
 
 /** Uploads one file into `folder` of the uploads, reporting how much of it is sent (0 to
- * 1). XMLHttpRequest rather than fetch: only it tells how the upload goes. Renews the
- * access token and tries again once if the server rejected it, as the API client does. */
+ * 1). */
 export async function sendFile(
   file: File,
   folder: string,
   onProgress: (progress: number) => void,
   signal: AbortSignal,
 ): Promise<UploadResult> {
+  const form = () => {
+    const data = new FormData();
+    data.append("folder", folder);
+    data.append("files", file, file.name);
+    return data;
+  };
+  const response = await send("/api/v1/library/uploads", form, file, onProgress, signal);
+  const [result] = (await response.json()) as UploadResult[];
+  if (!result) throw new ApiFailure(response, null);
+  return result;
+}
+
+/** Uploads an audio file into an album (see sendFile). */
+export async function sendToAlbum(
+  albumId: string,
+  file: File,
+  onProgress: (progress: number) => void,
+  signal: AbortSignal,
+): Promise<Schemas["AlbumUpload"]> {
+  const form = () => {
+    const data = new FormData();
+    data.append("file", file, file.name);
+    return data;
+  };
+  const url = `/api/v1/albums/${albumId}/tracks`;
+  const response = await send(url, form, file, onProgress, signal);
+  return (await response.json()) as Schemas["AlbumUpload"];
+}
+
+/** Posts a form with a file, reporting how much of it is sent. XMLHttpRequest rather than
+ * fetch: only it tells how the upload goes. Renews the access token and tries again once if
+ * the server rejected it, as the API client does. Resolves with a successful response. */
+async function send(
+  url: string,
+  form: () => FormData,
+  file: File,
+  onProgress: (progress: number) => void,
+  signal: AbortSignal,
+): Promise<Response> {
   let token = await getAccessToken();
   for (let attempt = 0; ; attempt++) {
-    const response = await post(file, folder, token, onProgress, signal);
+    const response = await post(url, form(), file, token, onProgress, signal);
+    if (response.ok) return response;
     const body: unknown = await response.json().catch(() => null);
     if (
       response.status === 401 &&
@@ -34,23 +73,21 @@ export async function sendFile(
       token = await renewAccessToken(token);
       if (token !== null) continue;
     }
-    if (!response.ok) throw new ApiFailure(response, body);
-    const [result] = body as UploadResult[];
-    if (!result) throw new ApiFailure(response, null);
-    return result;
+    throw new ApiFailure(response, body);
   }
 }
 
 function post(
+  url: string,
+  form: FormData,
   file: File,
-  folder: string,
   token: string | null,
   onProgress: (progress: number) => void,
   signal: AbortSignal,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/v1/library/uploads");
+    xhr.open("POST", url);
     if (token !== null) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
@@ -75,9 +112,6 @@ function post(
         );
     xhr.onabort = () => reject(new DOMException("Upload stopped", "AbortError"));
     signal.addEventListener("abort", () => xhr.abort(), { once: true });
-    const form = new FormData();
-    form.append("folder", folder);
-    form.append("files", file, file.name);
     xhr.send(form);
   });
 }

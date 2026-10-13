@@ -103,6 +103,8 @@ export interface Player {
   updateTrack(id: string, change: Partial<Track>): void;
   /** Changes the queued tracks `change` picks (null: not this one): an album's new cover. */
   updateTracks(change: (track: Track) => Partial<Track> | null): void;
+  /** Takes tracks deleted from the library out of the queue (the playing one plays on). */
+  removeTracks(ids: string[]): void;
   setShuffle(on: boolean): void;
   setRepeat(repeat: Repeat): void;
   setVolume(volume: number): void;
@@ -444,6 +446,10 @@ export function createPlayer(deps: Deps): Player {
     },
     updateTracks(change) {
       const updated = queue.updateTracks(get().queue, change);
+      if (updated !== get().queue) set({ queue: updated });
+    },
+    removeTracks(ids) {
+      const updated = queue.removeTracks(get().queue, new Set(ids));
       if (updated !== get().queue) set({ queue: updated });
     },
     setShuffle(on) {

@@ -114,3 +114,14 @@ test("updating a track changes every copy of it, in both orders", () => {
   expect(liked.current).toBe(queue.current);
   expect(q.updateTrack(queue, "not queued", { liked: true })).toBe(queue);
 });
+
+test("deleted tracks leave the queue, but for the one playing", () => {
+  const queue = q.addToQueue(q.newQueue(ALL, 2, false), [A]); // A B C D E A, at C
+  const left = q.removeTracks(queue, new Set([A.id, C.id, D.id]));
+  expect(titles(left.items)).toBe("BCE");
+  expect(current(left)).toBe("C");
+  const shuffled = q.removeTracks(q.shuffled(queue, low), new Set([B.id]));
+  expect(titles(shuffled.unshuffled!)).toBe("ACDEA");
+  expect(current(shuffled)).toBe("C");
+  expect(q.removeTracks(queue, new Set(["not queued"]))).toBe(queue);
+});

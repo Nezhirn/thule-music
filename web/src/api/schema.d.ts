@@ -273,7 +273,13 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename Artist
+         * @description Renames the artist in the tags of every track crediting them and every track of
+         *     their albums ("feat." in titles too). Given another artist's name, they are merged into
+         *     that one (the result has its id), their albums with the same titles too.
+         */
+        patch: operations["rename_artist"];
         trace?: never;
     };
     "/api/v1/albums": {
@@ -304,10 +310,21 @@ export interface paths {
         get: operations["get_album"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Album
+         * @description `tracks=delete` deletes the album's files from the disk (and the folders left without
+         *     music). `tracks=singles` keeps them: each becomes a single of its artist, titled after
+         *     it. Returns the singles.
+         */
+        delete: operations["delete_album"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Album
+         * @description Renames the album, changes its artist, year or genre: in its tracks' tags. Given the
+         *     title and artist of another album, it is merged into that one (the result has its id).
+         */
+        patch: operations["update_album"];
         trace?: never;
     };
     "/api/v1/tracks": {
@@ -338,10 +355,18 @@ export interface paths {
         get: operations["get_track"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Track
+         * @description Deletes the track's file (and its lyrics files) from the disk.
+         */
+        delete: operations["delete_track"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Track
+         * @description Changes the track's title, artists, number or disc: in its file's tags.
+         */
+        patch: operations["update_track"];
         trace?: never;
     };
     "/api/v1/genres": {
@@ -598,6 +623,49 @@ export interface paths {
          * @description The track shows its album's cover again.
          */
         delete: operations["reset_track_cover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/albums/{album_id}/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload To Album
+         * @description Adds an audio file to the album: saved beside its tracks, tagged as one of them (the
+         *     album, its artist, year and genre; the next number if it has none) and imported at
+         *     once. MP3, FLAC, Ogg, Opus or M4A: the formats whose tags can be written.
+         */
+        post: operations["upload_to_album"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracks/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Tracks
+         * @description Moves tracks into another album: their files go beside its tracks (with their
+         *     lyrics files) and are tagged as its own. Returns that album.
+         */
+        post: operations["move_tracks"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1050,6 +1118,11 @@ export interface components {
             /** Position */
             position?: number | null;
         };
+        /**
+         * AlbumDeletion
+         * @enum {string}
+         */
+        AlbumDeletion: "delete" | "singles";
         /** AlbumDetail */
         AlbumDetail: {
             /**
@@ -1115,6 +1188,17 @@ export interface components {
              */
             liked: boolean;
         };
+        /** AlbumPatch */
+        AlbumPatch: {
+            /** Title */
+            title?: string | null;
+            /** Artist */
+            artist?: string | null;
+            /** Year */
+            year?: number | null;
+            /** Genre */
+            genre?: string | null;
+        };
         /** AlbumRef */
         AlbumRef: {
             /**
@@ -1133,6 +1217,15 @@ export interface components {
          * @enum {string}
          */
         AlbumSort: "added" | "title" | "year" | "artist";
+        /** AlbumUpload */
+        AlbumUpload: {
+            track: components["schemas"]["TrackOut"];
+            /**
+             * Duplicate
+             * @default false
+             */
+            duplicate: boolean;
+        };
         /** ArtistDetail */
         ArtistDetail: {
             /**
@@ -1179,6 +1272,11 @@ export interface components {
              */
             liked: boolean;
         };
+        /** ArtistPatch */
+        ArtistPatch: {
+            /** Name */
+            name: string;
+        };
         /** ArtistRef */
         ArtistRef: {
             /**
@@ -1214,6 +1312,11 @@ export interface components {
              */
             folder?: string;
         };
+        /** Body_upload_to_album */
+        Body_upload_to_album: {
+            /** File */
+            file: string;
+        };
         /**
          * CoverPalette
          * @description Colours of a cover, for tinting the UI after it (#rrggbb).
@@ -1241,7 +1344,7 @@ export interface components {
          * ErrorCode
          * @enum {string}
          */
-        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "job_not_found" | "library_not_writable" | "disk_full" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
+        ErrorCode: "bad_request" | "forbidden" | "not_found" | "method_not_allowed" | "validation_error" | "http_error" | "not_authenticated" | "invalid_token" | "admin_only" | "registration_closed" | "username_taken" | "invalid_credentials" | "too_many_login_attempts" | "invalid_refresh_token" | "refresh_token_rotated" | "refresh_token_reused" | "refresh_token_expired" | "user_not_found" | "cannot_delete_self" | "cannot_change_own_role" | "wrong_password" | "not_an_image" | "image_too_large" | "artist_not_found" | "album_not_found" | "track_not_found" | "not_an_audio_file" | "tags_not_writable" | "invalid_stream_signature" | "audio_file_missing" | "cover_not_found" | "cover_file_missing" | "invalid_cover_size" | "lyrics_not_found" | "job_not_found" | "library_not_writable" | "disk_full" | "playlist_not_found" | "playlist_item_not_found" | "unknown_tracks";
         /** ErrorOut */
         ErrorOut: {
             code: components["schemas"]["ErrorCode"];
@@ -1421,6 +1524,13 @@ export interface components {
             item_id: string;
             /** Position */
             position: number;
+        };
+        /** NewAlbum */
+        NewAlbum: {
+            /** Title */
+            title: string;
+            /** Artist */
+            artist: string;
         };
         /** Page[AlbumOut] */
         Page_AlbumOut_: {
@@ -1756,6 +1866,14 @@ export interface components {
             /** Expires In */
             expires_in: number;
         };
+        /** TrackMove */
+        TrackMove: {
+            /** Track Ids */
+            track_ids: string[];
+            /** Album Id */
+            album_id?: string | null;
+            new_album?: components["schemas"]["NewAlbum"] | null;
+        };
         /** TrackOut */
         TrackOut: {
             /**
@@ -1788,6 +1906,17 @@ export interface components {
              * @default false
              */
             liked: boolean;
+        };
+        /** TrackPatch */
+        TrackPatch: {
+            /** Title */
+            title?: string | null;
+            /** Artists */
+            artists?: string[] | null;
+            /** Track No */
+            track_no?: number | null;
+            /** Disc No */
+            disc_no?: number | null;
         };
         /**
          * TrackSort
@@ -2406,6 +2535,41 @@ export interface operations {
             };
         };
     };
+    rename_artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtistPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     list_albums: {
         parameters: {
             query?: {
@@ -2472,6 +2636,74 @@ export interface operations {
             };
         };
     };
+    delete_album: {
+        parameters: {
+            query: {
+                tracks: components["schemas"]["AlbumDeletion"];
+            };
+            header?: never;
+            path: {
+                album_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumOut"][];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    update_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                album_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlbumPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     list_tracks: {
         parameters: {
             query?: {
@@ -2515,6 +2747,70 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    delete_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    update_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackPatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2987,6 +3283,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    upload_to_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                album_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_to_album"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumUpload"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    move_tracks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumOut"];
                 };
             };
             /** @description Error */

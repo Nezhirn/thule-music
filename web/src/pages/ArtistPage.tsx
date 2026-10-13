@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Shuffle } from "lucide-react";
+import { MoreHorizontal, Pencil, Shuffle } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
@@ -8,12 +8,15 @@ import { DetailHeader } from "../catalog/DetailHeader";
 import { PageFailed, PageLoading } from "../catalog/PageStatus";
 import { artistQuery, type Album } from "../catalog/queries";
 import { TrackTable } from "../catalog/TrackTable";
+import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
 import { FavouriteButton } from "../likes/LikeButton";
 import { usePlayerControls } from "../player/context";
 import { PlayButton } from "../player/PlayButton";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import iconButton from "../ui/IconButton.module.css";
+import { Menu, MenuItem } from "../ui/Menu";
 import grid from "../catalog/Grid.module.css";
 import styles from "./CatalogPage.module.css";
 
@@ -26,6 +29,7 @@ export function ArtistPage() {
   const query = useQuery(artistQuery(id));
   const [allTop, setAllTop] = useState(false);
   const player = usePlayerControls();
+  const edits = useEdits();
   if (query.isPending) return <PageLoading />;
   if (query.isError) {
     return (
@@ -68,6 +72,17 @@ export function ArtistPage() {
               </>
             )}
             <FavouriteButton kind="artist" item={artist} name={artist.name} />
+            {edits && (
+              <Menu
+                label={t.player.trackActions(artist.name)}
+                trigger={<MoreHorizontal className={iconButton.icon} />}
+                triggerClassName={`${iconButton.button} ${iconButton.md}`}
+              >
+                <MenuItem icon={Pencil} onSelect={() => edits.renameArtist(artist)}>
+                  {t.edits.renameArtist}
+                </MenuItem>
+              </Menu>
+            )}
           </>
         }
       >

@@ -223,7 +223,7 @@ async def test_a_library_the_server_cant_write_to(client, admin, monkeypatch):
         (OSError(errno.EROFS, "Read-only file system"), 503, "library_not_writable"),
         (OSError(errno.ENOSPC, "No space left on device"), 507, "disk_full"),
     ]:
-        monkeypatch.setattr(library_admin, "_save_upload", fail(error))
+        monkeypatch.setattr(library_admin, "save_upload", fail(error))
         resp = await client.post(
             "/library/uploads", files=[("files", ("song.mp3", b"ID3"))], headers=admin
         )

@@ -119,6 +119,20 @@ export function remove(queue: Queue, key: string): Queue {
   };
 }
 
+/** The queue without the tracks `ids` (deleted from the library), but for the current item:
+ * it plays on to its end. */
+export function removeTracks(queue: Queue, ids: ReadonlySet<string>): Queue {
+  const current = currentItem(queue);
+  const keep = (item: QueueItem) => item === current || !ids.has(item.track.id);
+  if (queue.items.every(keep)) return queue;
+  const items = queue.items.filter(keep);
+  return {
+    items,
+    current: current ? items.indexOf(current) : -1,
+    unshuffled: queue.unshuffled && queue.unshuffled.filter(keep),
+  };
+}
+
 /** Everything but the current item. */
 export function clearUpcoming(queue: Queue): Queue {
   const current = currentItem(queue);

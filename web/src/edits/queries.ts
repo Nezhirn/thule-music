@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, type Schemas } from "../api/client";
 import { errorMessage, unwrap } from "../api/errors";
-import type { Album, Track } from "../catalog/queries";
+import type { Album, Artist, Track } from "../catalog/queries";
 import { lyricsQuery, type Lyrics } from "../lyrics/queries";
 import { useI18n } from "../i18n";
 import { usePlayerControls } from "../player/context";
+import type { Player } from "../player/player";
 import { announce } from "../ui/toast";
 
 /** The server's limit for a cover. */
@@ -74,10 +75,12 @@ function form(file: File) {
   };
 }
 
-/** Covers show up all over: lists, pages, playlists' mosaics, search. */
-function coversChanged(queryClient: QueryClient) {
+/** After the library changed: whatever shows albums, tracks or artists, covers included
+ * (lists, pages, playlists' mosaics, search, the library's numbers). */
+export function libraryEdited(queryClient: QueryClient) {
   for (const key of [
     ["home"],
+    ["genres"],
     ["albums"],
     ["album"],
     ["artists"],
@@ -87,9 +90,33 @@ function coversChanged(queryClient: QueryClient) {
     ["playlists"],
     ["likes"],
     ["history"],
+    ["admin", "stats"],
   ]) {
     void queryClient.invalidateQueries({ queryKey: key });
   }
+}
+
+/** The queued tracks `pick` chooses, as the server has them now: changed, or out of the
+ * queue when deleted. */
+async function refreshQueued(player: Player, pick: (track: Track) => boolean) {
+  const ids = new Set(
+    player.store
+      .getState()
+      .queue.items.map((item) => item.track)
+      .filter(pick)
+      .map((track) => track.id),
+  );
+  const gone: string[] = [];
+  await Promise.all(
+    [...ids].map(async (id) => {
+      const { data, response } = await api.GET("/api/v1/tracks/{track_id}", {
+        params: { path: { track_id: id } },
+      });
+      if (data) player.updateTrack(id, data);
+      else if (response.status === 404) gone.push(id);
+    }),
+  );
+  if (gone.length) player.removeTracks(gone);
 }
 
 export function useAlbumCover(album: Album) {
@@ -106,7 +133,7 @@ export function useAlbumCover(album: Album) {
       );
     },
     onSuccess: ({ cover_id, cover_palette }) => {
-      coversChanged(queryClient);
+      libraryEdited(queryClient);
       announce(t.edits.cover.changed(album.title));
       // Queued tracks of the album; those showing its cover show the new one.
       player.updateTracks((track) => {
@@ -135,9 +162,126 @@ export function useTrackCover(track: Track) {
       );
     },
     onSuccess: ({ cover_id, cover_palette }) => {
-      coversChanged(queryClient);
+      libraryEdited(queryClient);
       announce(t.edits.cover.changed(track.title));
       player.updateTrack(track.id, { cover_id, cover_palette });
+    },
+  });
+}
+
+export function useUpdateAlbum(album: Album) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (body: Schemas["AlbumPatch"]) =>
+      unwrap(
+        api.PATCH("/api/v1/albums/{album_id}", {
+          params: { path: { album_id: album.id } },
+          body,
+        }),
+      ),
+    onSuccess: (saved) => {
+      libraryEdited(queryClient);
+      void refreshQueued(player, (track) => track.album.id === album.id);
+      announce((saved.id === album.id ? t.edits.album.saved : t.edits.album.merged)(saved.title));
+    },
+  });
+}
+
+export function useDeleteAlbum(album: Album) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (tracks: Schemas["AlbumDeletion"]) =>
+      unwrap(
+        api.DELETE("/api/v1/albums/{album_id}", {
+          params: { path: { album_id: album.id }, query: { tracks } },
+        }),
+      ),
+    onSuccess: (_, tracks) => {
+      queryClient.removeQueries({ queryKey: ["album", album.id] });
+      libraryEdited(queryClient);
+      void refreshQueued(player, (track) => track.album.id === album.id);
+      const text = t.edits.deleteAlbumDialog;
+      announce((tracks === "delete" ? text.deleted : text.madeSingles)(album.title));
+    },
+    onError: (error) => announce(errorMessage(t, error)),
+  });
+}
+
+export function useUpdateTrack(track: Track) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (body: Schemas["TrackPatch"]) =>
+      unwrap(
+        api.PATCH("/api/v1/tracks/{track_id}", {
+          params: { path: { track_id: track.id } },
+          body,
+        }),
+      ),
+    onSuccess: (saved) => {
+      libraryEdited(queryClient);
+      player.updateTrack(saved.id, saved);
+      announce(t.edits.track.saved(saved.title));
+    },
+  });
+}
+
+export function useDeleteTrack(track: Track) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: () =>
+      unwrap(api.DELETE("/api/v1/tracks/{track_id}", { params: { path: { track_id: track.id } } })),
+    onSuccess: () => {
+      libraryEdited(queryClient);
+      player.removeTracks([track.id]);
+      announce(t.edits.deleteTrackDialog.deleted(track.title));
+    },
+    onError: (error) => announce(errorMessage(t, error)),
+  });
+}
+
+export function useMoveTracks() {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (body: Schemas["TrackMove"]) => unwrap(api.POST("/api/v1/tracks/move", { body })),
+    onSuccess: (album, { track_ids }) => {
+      libraryEdited(queryClient);
+      void refreshQueued(player, (track) => track_ids.includes(track.id));
+      announce(t.edits.move.moved(track_ids.length, album.title));
+    },
+  });
+}
+
+export function useRenameArtist(artist: Pick<Artist, "id" | "name">) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const player = usePlayerControls();
+  return useMutation({
+    mutationFn: (name: string) =>
+      unwrap(
+        api.PATCH("/api/v1/artists/{artist_id}", {
+          params: { path: { artist_id: artist.id } },
+          body: { name },
+        }),
+      ),
+    onSuccess: (saved) => {
+      libraryEdited(queryClient);
+      void refreshQueued(
+        player,
+        (track) =>
+          track.album_artist.id === artist.id || track.artists.some((a) => a.id === artist.id),
+      );
+      const text = t.edits.artist;
+      announce((saved.id === artist.id ? text.renamed : text.merged)(saved.name));
     },
   });
 }

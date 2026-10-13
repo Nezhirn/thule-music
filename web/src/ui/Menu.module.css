@@ -70,3 +70,9 @@
   height: 18px;
   color: var(--text-muted);
 }
+
+.separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--glass-border);
+}

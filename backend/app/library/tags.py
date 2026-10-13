@@ -131,6 +131,20 @@ def split_featured(text: str) -> tuple[str, list[str]]:
     return main.strip(), [name for name in (n.strip() for n in featured) if name]
 
 
+def rename_featured(title: str, old: str, new: str) -> str:
+    """The title with an artist it features renamed: "Song (feat. Old)" -> "Song (feat.
+    New)". Other titles stay as they are."""
+
+    def rename(match: re.Match[str]) -> str:
+        # Names and the separators between them, which stay as they are.
+        parts = re.split(f"({_AND.pattern})", match.group(1))
+        parts[::2] = [new if name_key(n) == name_key(old) else n for n in parts[::2]]
+        start, end = match.start(1) - match.start(0), match.end(1) - match.start(0)
+        return match.group(0)[:start] + "".join(parts) + match.group(0)[end:]
+
+    return _FEAT_BRACKETS.sub(rename, title)
+
+
 def _credits(artist_values: list[str], title: str | None) -> list[str]:
     """Everyone credited on a track, main artist first: each artist tag value (some files
     have several) with the artists it features, then those the title features ("Song (feat.
@@ -225,7 +239,7 @@ class _KeepBytesFLAC(FLAC):
     ]
 
 
-def _replaced_bytes(tags) -> bool:
+def replaced_bytes(tags) -> bool:
     return isinstance(tags, VCFLACDict) and any(
         "\ufffd" in value for _, values in tags.items() for value in values
     )
@@ -236,7 +250,7 @@ def read_tags(path: Path, *, lyrics: bool = True) -> TrackTags:
     try:
         audio = mutagen.File(path, easy=True)
         # Text that was not UTF-8 came out as U+FFFD: read it again, bytes kept.
-        if isinstance(audio, FLAC) and _replaced_bytes(audio.tags):
+        if isinstance(audio, FLAC) and replaced_bytes(audio.tags):
             audio = _KeepBytesFLAC(path)
     except mutagen.MutagenError as exc:
         raise UnreadableAudio(str(exc)) from exc

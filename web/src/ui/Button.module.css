@@ -46,3 +46,12 @@
 .secondary:not(:disabled):hover {
   background: var(--selected);
 }
+
+.danger {
+  background: var(--danger);
+  color: #1d0508;
+}
+
+.danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 85%, white);
+}

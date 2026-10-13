@@ -2,7 +2,8 @@ import type { ButtonHTMLAttributes } from "react";
 import styles from "./Button.module.css";
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary";
+  /** danger: an action that can't be undone (deleting files). */
+  variant?: "primary" | "secondary" | "danger";
   size?: "normal" | "small";
   /** Disables the button and shows this text while an action runs. */
   busyLabel?: string | false;

@@ -1,11 +1,11 @@
 // Generates the E2E music library from library.json with ffmpeg: one folder per album (with
 // CD1, CD2... inside for several discs), sine tones with full tags, covers as a folder image or
-// embedded in the files. Kept between runs and rebuilt only when the spec or this generator
-// changes.
+// embedded in the files. Kept between runs and rebuilt when the spec or this generator
+// changes, or when its files did (the admin tests rename, move and delete them).
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -132,6 +132,23 @@ export async function writeAlbum(dir, album, scratch) {
   );
 }
 
+/**
+ * Every file of the library but the uploads (removed at each start) and the stamp, with its
+ * size and time: whether the library is still as generated.
+ * @param {string} root
+ */
+async function snapshot(root) {
+  const lines = [];
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const path = relative(root, join(entry.parentPath, entry.name));
+    if (path === ".fingerprint" || path.startsWith("uploads/")) continue;
+    const { size, mtimeMs } = await stat(join(root, path));
+    lines.push(`${path} ${size} ${Math.round(mtimeMs)}`);
+  }
+  return lines.sort().join("\n");
+}
+
 /** @param {string} root */
 export async function generateLibrary(root) {
   const specPath = new URL("library.json", import.meta.url);
@@ -141,7 +158,8 @@ export async function generateLibrary(root) {
     .update(await readFile(new URL(import.meta.url)))
     .digest("hex");
   const stamp = join(root, ".fingerprint");
-  if ((await readFile(stamp, "utf8").catch(() => "")) === fingerprint) return;
+  const stamped = await readFile(stamp, "utf8").catch(() => "");
+  if (stamped && stamped === `${fingerprint}\n${await snapshot(root)}`) return;
 
   await rm(root, { recursive: true, force: true });
   const scratch = join(root, ".covers");
@@ -154,5 +172,5 @@ export async function generateLibrary(root) {
   );
   // Not part of the library: the scan would only skip it, but keep the tree clean.
   await rm(scratch, { recursive: true, force: true });
-  await writeFile(stamp, fingerprint);
+  await writeFile(stamp, `${fingerprint}\n${await snapshot(root)}`);
 }

@@ -169,3 +169,8 @@ export function MenuItem({
     </button>
   );
 }
+
+/** A line between groups of items (an admin's, after everyone's). */
+export function MenuSeparator() {
+  return <div role="separator" className={styles.separator} />;
+}

@@ -444,7 +444,7 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, in
     return result
 
 
-async def _upsert_artist(session: AsyncSession, name: str) -> uuid.UUID:
+async def upsert_artist(session: AsyncSession, name: str) -> uuid.UUID:
     key = name_key(name)
     await session.execute(
         insert(Artist).values(id=uuid.uuid4(), name=name, name_key=key).on_conflict_do_nothing()
@@ -454,7 +454,7 @@ async def _upsert_artist(session: AsyncSession, name: str) -> uuid.UUID:
     return artist_id
 
 
-async def _upsert_album(
+async def upsert_album(
     session: AsyncSession, title: str, artist_id: uuid.UUID, year: int | None, genre: str | None
 ) -> Album:
     key = name_key(title)
@@ -476,74 +476,103 @@ async def _upsert_album(
     return album
 
 
-async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
-    rel: str = payload["path"]
-    full = resolve_in_library(ctx.settings.library_path, rel)
+@dataclass
+class Imported:
+    track: Track
+    album: Album
+    # The album the track was in before, when it moved to another.
+    previous_album_id: uuid.UUID | None
+    # Embedded lyrics, for fetch_lyrics.
+    lyrics: str | None
 
-    async with ctx.sessionmaker() as session:
-        if not full.is_file():
-            await session.execute(delete(Track).where(Track.path == rel))
-            await delete_orphans(session)
-            await session.commit()
-            return
 
-        st = full.stat()
-        tags = await asyncio.to_thread(read_tags, full)
+async def import_file(session: AsyncSession, library: Path, rel: str) -> Imported | None:
+    """Reads a file's tags into its track: artists and album created as needed, the track
+    created or updated. None when the file is gone (its track is deleted). Leaves to the
+    caller what is done once for several files: orphans, album covers, follow-up jobs."""
+    full = resolve_in_library(library, rel)
+    if not full.is_file():
+        await session.execute(delete(Track).where(Track.path == rel))
+        return None
 
-        album_artist_id = await _upsert_artist(session, tags.album_artist)
-        artist_ids = [
-            album_artist_id
-            if name_key(name) == name_key(tags.album_artist)
-            else await _upsert_artist(session, name)
-            for name in tags.artists
-        ]
-        album = await _upsert_album(session, tags.album, album_artist_id, tags.year, tags.genre)
+    st = full.stat()
+    tags = await asyncio.to_thread(read_tags, full)
 
-        track = await session.scalar(select(Track).where(Track.path == rel))
-        if track is None:
-            track = Track(path=rel)
-            session.add(track)
-        previous_album_id = track.album_id
-        track.title = tags.title
-        track.album_id = album.id
-        track.artist_id = artist_ids[0]
-        track.disc_no = tags.disc_no
-        track.track_no = tags.track_no
-        track.duration_ms = tags.duration_ms
-        track.size = st.st_size
-        track.mtime = st.st_mtime
-        track.codec = tags.codec
-        track.bitrate = tags.bitrate
-        track.sample_rate = tags.sample_rate
-        await session.flush()
-        await session.execute(delete(TrackArtist).where(TrackArtist.track_id == track.id))
-        await session.execute(
-            insert(TrackArtist).values(
-                [
-                    {"track_id": track.id, "position": i, "artist_id": artist_id}
-                    for i, artist_id in enumerate(artist_ids)
-                ]
-            )
+    album_artist_id = await upsert_artist(session, tags.album_artist)
+    artist_ids = [
+        album_artist_id
+        if name_key(name) == name_key(tags.album_artist)
+        else await upsert_artist(session, name)
+        for name in tags.artists
+    ]
+    album = await upsert_album(session, tags.album, album_artist_id, tags.year, tags.genre)
+
+    track = await session.scalar(select(Track).where(Track.path == rel))
+    if track is None:
+        track = Track(path=rel)
+        session.add(track)
+    previous_album_id = track.album_id
+    track.title = tags.title
+    track.album_id = album.id
+    track.artist_id = artist_ids[0]
+    track.disc_no = tags.disc_no
+    track.track_no = tags.track_no
+    track.duration_ms = tags.duration_ms
+    track.size = st.st_size
+    track.mtime = st.st_mtime
+    track.codec = tags.codec
+    track.bitrate = tags.bitrate
+    track.sample_rate = tags.sample_rate
+    await session.flush()
+    await session.execute(delete(TrackArtist).where(TrackArtist.track_id == track.id))
+    await session.execute(
+        insert(TrackArtist).values(
+            [
+                {"track_id": track.id, "position": i, "artist_id": artist_id}
+                for i, artist_id in enumerate(artist_ids)
+            ]
         )
+    )
+    moved_from = previous_album_id if previous_album_id not in (None, album.id) else None
+    return Imported(track, album, moved_from, tags.lyrics)
 
-        # A re-import may move the track to another album; drop what that left empty.
-        await delete_orphans(session)
-        library, covers = ctx.settings.library_path, ctx.settings.covers_path
+
+async def choose_covers(
+    session: AsyncSession, library: Path, covers: Path, album_ids: set[uuid.UUID]
+) -> None:
+    """Chooses the covers of these albums again, of those that still exist."""
+    for album in await session.scalars(select(Album).where(Album.id.in_(album_ids))):
         await choose_album_cover(session, library, covers, album)
-        if previous_album_id not in (None, album.id):
-            # Queried, not session.get(): delete_orphans may have just removed it.
-            previous = await session.scalar(select(Album).where(Album.id == previous_album_id))
-            if previous is not None:
-                await choose_album_cover(session, library, covers, previous)
 
-        track_id = str(track.id)
+
+async def queue_follow_ups(session: AsyncSession, imported: Imported, *, transcode: bool) -> None:
+    """The work an imported track needs: transcodes (unless only its tags changed) and a
+    lyrics lookup."""
+    track_id = str(imported.track.id)
+    if transcode:
         await enqueue(
             session, "transcode", {"track_id": track_id}, dedupe_key=f"transcode:{track_id}"
         )
-        await enqueue(
-            session,
-            "fetch_lyrics",
-            {"track_id": track_id, "embedded": tags.lyrics},
-            dedupe_key=f"lyrics:{track_id}",
-        )
+    await enqueue(
+        session,
+        "fetch_lyrics",
+        {"track_id": track_id, "embedded": imported.lyrics},
+        dedupe_key=f"lyrics:{track_id}",
+    )
+
+
+async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
+    rel: str = payload["path"]
+    async with ctx.sessionmaker() as session:
+        imported = await import_file(session, ctx.settings.library_path, rel)
+        # A re-import may move the track to another album; drop what that left empty.
+        await delete_orphans(session)
+        if imported is not None:
+            album_ids = {imported.album.id}
+            if imported.previous_album_id is not None:
+                album_ids.add(imported.previous_album_id)
+            await choose_covers(
+                session, ctx.settings.library_path, ctx.settings.covers_path, album_ids
+            )
+            await queue_follow_ups(session, imported, transcode=True)
         await session.commit()

@@ -1,5 +1,6 @@
 import {
   Disc3,
+  FolderInput,
   Heart,
   HeartOff,
   ImagePlus,
@@ -7,7 +8,9 @@ import {
   ListPlus,
   ListStart,
   MoreHorizontal,
+  Pencil,
   SquarePen,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -16,14 +19,15 @@ import { useEdits } from "../edits/context";
 import { useI18n } from "../i18n";
 import { useLiked, useToggleLike } from "../likes/context";
 import { useAddToPlaylist } from "../playlists/adding";
-import { Menu, MenuItem, MenuLink } from "../ui/Menu";
+import { Menu, MenuItem, MenuLink, MenuSeparator } from "../ui/Menu";
 import iconButton from "../ui/IconButton.module.css";
 import { announce } from "../ui/toast";
 import { usePlayerControls } from "./context";
 import styles from "./TrackActions.module.css";
 
 /** A track's menu: queue it next or last, like it, go to its album or artist; for admins,
- * edit its lyrics and cover. `children` are more items, at the end. */
+ * edit it, its lyrics and cover, move it to another album, delete it. `children` are more
+ * items, at the end. */
 export function TrackActions({
   track,
   className,
@@ -83,11 +87,24 @@ export function TrackActions({
       </MenuLink>
       {edits && (
         <>
+          <MenuSeparator />
+          <MenuItem icon={Pencil} onSelect={() => edits.editTrack(track)}>
+            {t.edits.editTrack}
+          </MenuItem>
           <MenuItem icon={SquarePen} onSelect={() => edits.editLyrics(track)}>
             {t.edits.editLyrics}
           </MenuItem>
           <MenuItem icon={ImagePlus} onSelect={() => edits.editCover({ kind: "track", track })}>
             {t.edits.changeCover}
+          </MenuItem>
+          <MenuItem
+            icon={FolderInput}
+            onSelect={() => edits.moveTracks({ tracks: [track], selected: [track.id] })}
+          >
+            {t.edits.moveTrack}
+          </MenuItem>
+          <MenuItem icon={Trash2} onSelect={() => edits.deleteTrack(track)}>
+            {t.edits.deleteTrack}
           </MenuItem>
         </>
       )}

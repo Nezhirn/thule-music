@@ -2,15 +2,11 @@
 
 import asyncio
 import enum
-import errno
-import hashlib
 import os
-import re
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, BinaryIO
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, Query, UploadFile, status
 from pydantic import ConfigDict, Field
@@ -23,6 +19,7 @@ from app.deps import AdminUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
 from app.jobs.models import Job, JobStatus
 from app.jobs.queue import enqueue, requeue
+from app.library.files import safe_folder, safe_name, save_upload, sha256, write
 from app.library.importer import resolve_in_library
 from app.library.models import Album, Artist, Track
 from app.library.queries import track_select, tracks_out
@@ -318,76 +315,8 @@ async def clear_failed_jobs(session: SessionDep, _: AdminUser) -> None:
 
 # --- uploads -------------------------------------------------------------------------------
 
-_UNSAFE = re.compile(r"[^\w\-. ()\[\]&,']+", re.UNICODE)
 # Besides audio: what a scan uses from an album's folder.
 UPLOAD_EXTENSIONS = AUDIO_EXTENSIONS | set(FOLDER_COVER_SUFFIXES) | set(SIDECAR_SUFFIXES)
-MAX_NAME = 120  # characters of a file or folder name: Cyrillic takes 2 of the 255 bytes
-MAX_DEPTH = 8
-
-
-def _safe_part(name: str) -> str:
-    """A file or folder name with nothing that could reach outside its folder ("..", "/")
-    or hide it (a leading dot); "" when nothing is left."""
-    cleaned = _UNSAFE.sub("_", name).strip(" .")
-    if len(cleaned) > MAX_NAME:
-        stem, suffix = Path(cleaned).stem, Path(cleaned).suffix
-        cleaned = stem[: MAX_NAME - len(suffix)].rstrip(" .") + suffix
-    return cleaned
-
-
-def _safe_name(name: str) -> str:
-    return _safe_part(Path(name).name) or "upload"
-
-
-def _safe_folder(folder: str) -> Path:
-    parts = [part for raw in folder.replace("\\", "/").split("/") if (part := _safe_part(raw))]
-    return Path(*parts[:MAX_DEPTH])
-
-
-async def _write[**P, R](func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-    """Runs a write to the library in a thread. A library mounted read-only or owned by
-    another user, and a full disk, are told to the admin as such."""
-    try:
-        return await asyncio.to_thread(func, *args, **kwargs)
-    except OSError as exc:
-        if exc.errno == errno.ENOSPC:
-            raise ApiError(ErrorCode.disk_full) from exc
-        if isinstance(exc, PermissionError) or exc.errno == errno.EROFS:
-            raise ApiError(ErrorCode.library_not_writable) from exc
-        raise
-
-
-def _save_upload(src: BinaryIO, directory: Path, name: str) -> tuple[Path, str]:
-    """Copies an upload to the first free name: "x.mp3", "x (1).mp3", ... Never overwrites:
-    the name is claimed with an exclusive create, so concurrent uploads can't collide.
-    Returns the file and the SHA-256 of its content."""
-    stem, suffix = Path(name).stem, Path(name).suffix
-    dest, n = directory / name, 1
-    while True:
-        try:
-            out = dest.open("xb")
-        except FileExistsError:
-            dest = directory / f"{stem} ({n}){suffix}"
-            n += 1
-            continue
-        digest = hashlib.sha256()
-        try:
-            with out:
-                while chunk := src.read(1024 * 1024):
-                    digest.update(chunk)
-                    out.write(chunk)
-        except BaseException:
-            dest.unlink(missing_ok=True)
-            raise
-        return dest, digest.hexdigest()
-
-
-def _sha256(path: Path) -> str | None:
-    try:
-        with path.open("rb") as fh:
-            return hashlib.file_digest(fh, "sha256").hexdigest()
-    except OSError:
-        return None
 
 
 def _same_size_files(directory: Path, size: int, saved: Path) -> list[str]:
@@ -420,7 +349,7 @@ async def _existing_copy(
     ]
     for rel in dict.fromkeys(candidates):
         full = resolve_in_library(settings.library_path, rel)
-        if await asyncio.to_thread(_sha256, full) == digest:
+        if await asyncio.to_thread(sha256, full) == digest:
             return rel
     return None
 
@@ -444,16 +373,16 @@ async def upload_files(
     (.lrc, .txt) are taken: `folder` keeps an album's files together, e.g. "Artist/Album"
     for a dropped album folder. A file already in the library byte for byte is not saved
     again. Results are in the order of the files."""
-    names = [_safe_name(file.filename or "upload") for file in files]
+    names = [safe_name(file.filename or "upload") for file in files]
     # Validate the whole batch first so a rejected request leaves nothing on disk.
     for file, name in zip(files, names, strict=True):
         if Path(name).suffix.casefold() not in UPLOAD_EXTENSIONS:
             raise ApiError(ErrorCode.not_an_audio_file, f"Can't upload {file.filename}")
-    directory = settings.uploads_path / _safe_folder(folder)
-    await _write(directory.mkdir, parents=True, exist_ok=True)
+    directory = settings.uploads_path / safe_folder(folder)
+    await write(directory.mkdir, parents=True, exist_ok=True)
     results = []
     for file, name in zip(files, names, strict=True):
-        dest, digest = await _write(_save_upload, file.file, directory, name)
+        dest, digest = await write(save_upload, file.file, directory, name)
         existing = await _existing_copy(session, settings, dest, digest)
         if existing is not None:
             await asyncio.to_thread(dest.unlink)
