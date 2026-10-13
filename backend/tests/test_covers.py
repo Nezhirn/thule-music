@@ -3,6 +3,7 @@ from sqlalchemy import update
 
 from app.library.covers import compute_palette
 from app.library.models import Cover
+from tests.conftest import png_bytes
 
 
 def test_palette_of_a_dark_cover_with_a_red_accent():
@@ -45,3 +46,73 @@ async def test_api_returns_palettes_and_backfills_old_covers(
     await run_jobs()
     album = (await client.get(f"/albums/{track['album']['id']}", headers=admin)).json()
     assert album["cover_palette"] == palette
+
+
+async def album_color(client, admin) -> str | None:
+    (album,) = (await client.get("/albums", headers=admin)).json()["items"]
+    return album["cover_palette"] and album["cover_palette"]["average"]
+
+
+async def rescan(client, admin, run_jobs) -> None:
+    await client.post("/library/scan", headers=admin)
+    await run_jobs()
+
+
+async def test_replaced_or_removed_folder_image_is_picked_up(
+    client, admin, make_audio, run_jobs, settings
+):
+    make_audio("X/01.flac", title="T", artist="A", album="X", cover=(200, 0, 0))  # X/cover.png
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) == "#c80000"
+
+    (settings.library_path / "X" / "cover.png").write_bytes(png_bytes((0, 0, 200)))
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) == "#0000c8"
+
+    (settings.library_path / "X" / "cover.png").unlink()
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) is None
+
+
+async def test_new_embedded_art_replaces_the_old(client, admin, make_audio, run_jobs):
+    make_audio("X/01.mp3", title="T", artist="A", album="X", cover=(200, 0, 0))
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) == "#c80000"
+    make_audio("X/01.mp3", title="T", artist="A", album="X", cover=(0, 200, 0))
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) == "#00c800"
+
+
+async def test_folder_image_beats_embedded_art(client, admin, make_audio, run_jobs, settings):
+    make_audio("X/01.mp3", title="T", artist="A", album="X", cover=(200, 0, 0))
+    (settings.library_path / "X" / "folder.png").write_bytes(png_bytes((0, 0, 200)))
+    await rescan(client, admin, run_jobs)
+    assert await album_color(client, admin) == "#0000c8"
+    # Nothing changed: the next scan queues no cover work.
+    await client.post("/library/scan", headers=admin)
+    assert await run_jobs() == 1
+
+
+async def test_retagged_track_moves_album_art_along(client, admin, make_audio, run_jobs):
+    make_audio("X/01.mp3", title="One", artist="A", album="Old", track=1, cover=(200, 0, 0))
+    make_audio("X/02.mp3", title="Two", artist="A", album="Old", track=2, cover=(0, 0, 200))
+    await rescan(client, admin, run_jobs)
+    (album,) = (await client.get("/albums", headers=admin)).json()["items"]
+    assert album["cover_palette"]["average"] == "#c80000"  # the first track's art
+
+    # Track 1 now belongs to another album: "Old" falls back to track 2's art.
+    make_audio("X/01.mp3", title="One", artist="A", album="New", track=1, cover=(200, 0, 0))
+    await rescan(client, admin, run_jobs)
+    albums = (await client.get("/albums?sort=title", headers=admin)).json()["items"]
+    assert {a["title"]: a["cover_palette"]["average"] for a in albums} == {
+        "New": "#c80000",
+        "Old": "#0000c8",
+    }
+
+    # And when the last track leaves, the emptied album is gone without errors.
+    make_audio("X/02.mp3", title="Two", artist="A", album="New", track=2, cover=(0, 0, 200))
+    await rescan(client, admin, run_jobs)
+    albums = (await client.get("/albums", headers=admin)).json()["items"]
+    assert [a["title"] for a in albums] == ["New"]
+    jobs = (await client.get("/library/jobs?status=failed", headers=admin)).json()
+    assert jobs == []

@@ -2,6 +2,7 @@
 
 import base64
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +33,6 @@ class TrackTags:
     codec: str
     bitrate: int | None  # kbit/s
     sample_rate: int | None
-    picture: bytes | None
     lyrics: str | None
 
 
@@ -73,7 +73,7 @@ def _codec(audio) -> str:
     }.get(name, name)
 
 
-def _embedded_picture(path: Path) -> bytes | None:
+def embedded_picture(path: Path) -> bytes | None:
     audio = mutagen.File(path)
     if audio is None:
         return None
@@ -123,8 +123,8 @@ def _embedded_lyrics(path: Path) -> str | None:
     return None
 
 
-def read_tags(path: Path, *, extras: bool = True) -> TrackTags:
-    """`extras=False` skips artwork and lyrics, which need further passes over the file."""
+def read_tags(path: Path, *, lyrics: bool = True) -> TrackTags:
+    """`lyrics=False` skips embedded lyrics, which need another pass over the file."""
     try:
         audio = mutagen.File(path, easy=True)
     except mutagen.MutagenError as exc:
@@ -148,22 +148,30 @@ def read_tags(path: Path, *, extras: bool = True) -> TrackTags:
         codec=_codec(audio),
         bitrate=round(bitrate / 1000) if bitrate else None,
         sample_rate=getattr(audio.info, "sample_rate", None),
-        picture=_embedded_picture(path) if extras else None,
-        lyrics=_embedded_lyrics(path) if extras else None,
+        lyrics=_embedded_lyrics(path) if lyrics else None,
     )
 
 
 FOLDER_COVER_NAMES = ("cover", "folder", "front", "album", "albumart")
 
 
+FOLDER_COVER_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def pick_folder_cover(filenames: Iterable[str]) -> str | None:
+    """Of a folder's files, the one to use as album art: cover.jpg, folder.png, ..."""
+    candidates = {
+        Path(name).stem.casefold(): name
+        for name in filenames
+        if Path(name).suffix.casefold() in FOLDER_COVER_SUFFIXES
+    }
+    return next((candidates[n] for n in FOLDER_COVER_NAMES if n in candidates), None)
+
+
 def folder_cover(directory: Path) -> Path | None:
-    """Finds cover.jpg / folder.png / ... next to the audio file."""
+    """Finds cover.jpg / folder.png / ... in a folder."""
     try:
-        candidates = {p.stem.casefold(): p for p in directory.iterdir() if p.is_file()}
+        name = pick_folder_cover(p.name for p in directory.iterdir() if p.is_file())
     except OSError:
         return None
-    for name in FOLDER_COVER_NAMES:
-        p = candidates.get(name)
-        if p is not None and p.suffix.casefold() in {".jpg", ".jpeg", ".png", ".webp"}:
-            return p
-    return None
+    return directory / name if name else None

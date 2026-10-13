@@ -40,7 +40,8 @@ POST /library/scan или /library/uploads
   └─ scan_library: обход папки, сравнение size/mtime с БД, удаление исчезнувших
        └─ import_track (на каждый новый/изменённый файл)
             ├─ теги → upsert artist / album / track
-            ├─ обложка: встроенная или cover.jpg/folder.png рядом → миниатюры 64/300/600
+            ├─ обложка альбома: cover.jpg/folder.png в папке, иначе встроенная (по первым трекам)
+            │    → миниатюры 64/300/600 и палитра; замену картинки замечает следующий скан
             ├─ transcode: Opus 160k (high) и 96k (low)
             └─ fetch_lyrics: .lrc → тег → LRCLIB (или кеш «нет текста»)
 ```

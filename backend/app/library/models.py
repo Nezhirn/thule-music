@@ -56,6 +56,10 @@ class Album(UUIDPk, Base):
     year: Mapped[int | None]
     genre: Mapped[str | None] = mapped_column(String(128))
     cover_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("covers.id", ondelete="SET NULL"))
+    # Where the cover came from (library-relative path of a folder image, or of the audio
+    # file it is embedded in) and that file's mtime, so a scan notices a replaced image.
+    cover_source: Mapped[str | None] = mapped_column(String(2048))
+    cover_mtime: Mapped[float | None]
     added_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
     artist: Mapped[Artist] = relationship(lazy="raise")

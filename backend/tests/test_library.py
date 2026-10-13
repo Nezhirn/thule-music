@@ -249,4 +249,4 @@ def test_scan_follows_symlinks_but_not_cycles(tmp_path):
     (tmp_path / "elsewhere").mkdir()
     (tmp_path / "elsewhere" / "2.flac").touch()
     (root / "B").symlink_to(tmp_path / "elsewhere")  # regular linked folder
-    assert set(_walk(root)) == {"A/1.mp3", "B/2.flac"}
+    assert set(_walk(root)[0]) == {"A/1.mp3", "B/2.flac"}

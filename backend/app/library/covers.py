@@ -96,6 +96,15 @@ def compute_palette(image: Image.Image) -> dict[str, Any]:
     }
 
 
+def is_image(data: bytes) -> bool:
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.verify()
+    except (UnidentifiedImageError, DecompressionBombError, OSError, SyntaxError):
+        return False
+    return True
+
+
 def _render(data: bytes, covers_path: Path, source_hash: str) -> tuple[int, int, dict[str, Any]]:
     with Image.open(io.BytesIO(data)) as raw:
         image = ImageOps.exif_transpose(raw).convert("RGB")
