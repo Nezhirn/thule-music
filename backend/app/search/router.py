@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 
 from app.deps import CurrentUser, SessionDep
@@ -14,7 +13,7 @@ from app.library.queries import (
     track_select,
     tracks_out,
 )
-from app.schemas import AlbumOut, ArtistOut, TrackOut
+from app.schemas import AlbumOut, ApiModel, ArtistOut, TrackOut
 
 router = APIRouter(tags=["search"])
 
@@ -22,7 +21,7 @@ router = APIRouter(tags=["search"])
 FUZZY_THRESHOLD = 0.4
 
 
-class SearchOut(BaseModel):
+class SearchOut(ApiModel):
     artists: list[ArtistOut]
     albums: list[AlbumOut]
     tracks: list[TrackOut]

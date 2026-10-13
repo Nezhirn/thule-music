@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, BinaryIO
 
 from fastapi import APIRouter, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 from sqlalchemy import func, select
 
 from app.config import AUDIO_EXTENSIONS
@@ -27,7 +27,7 @@ from app.library.queries import (
     tracks_out,
 )
 from app.me.models import PlayEvent
-from app.schemas import AlbumDetail, AlbumOut, ArtistDetail, ArtistOut, Page, TrackOut
+from app.schemas import AlbumDetail, AlbumOut, ApiModel, ArtistDetail, ArtistOut, Page, TrackOut
 
 router = APIRouter(tags=["library"])
 admin_router = APIRouter(prefix="/library", tags=["admin"])
@@ -175,7 +175,7 @@ async def get_track(track_id: uuid.UUID, session: SessionDep, user: CurrentUser)
 # --- admin -----------------------------------------------------------------------------
 
 
-class JobOut(BaseModel):
+class JobOut(ApiModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -186,14 +186,14 @@ class JobOut(BaseModel):
     error: str | None
 
 
-class JobCounts(BaseModel):
+class JobCounts(ApiModel):
     queued: int = 0
     running: int = 0
     done: int = 0
     failed: int = 0
 
 
-class JobSummary(BaseModel):
+class JobSummary(ApiModel):
     # Per job kind: scan_library, import_track, transcode, fetch_lyrics, ...
     kinds: dict[str, JobCounts]
     # Work left over all kinds (queued + running); 0 when the library is up to date.
@@ -201,7 +201,7 @@ class JobSummary(BaseModel):
     failed: int
 
 
-class UploadResult(BaseModel):
+class UploadResult(ApiModel):
     path: str
 
 

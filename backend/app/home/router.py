@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +11,7 @@ from app.deps import CurrentUser, SessionDep
 from app.library.models import Album, Track
 from app.library.queries import ALBUM_LOAD, albums_out
 from app.me.models import PlayEvent, TrackLike
-from app.schemas import AlbumOut
+from app.schemas import AlbumOut, ApiModel
 
 router = APIRouter(tags=["home"])
 
@@ -23,7 +22,7 @@ LIKE_WEIGHT = 5
 MIN_LISTEN_MS = 30_000
 
 
-class HomeOut(BaseModel):
+class HomeOut(ApiModel):
     new_releases: list[AlbumOut]
     recently_played: list[AlbumOut]
     for_you: list[AlbumOut]

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import ARRAY, Text, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 
@@ -15,18 +15,18 @@ from app.library.models import Album, Artist, Track
 from app.library.queries import ALBUM_LOAD, album_out, artists_out, track_out, track_select
 from app.me.models import AlbumLike, ArtistLike, PlayEvent, TrackLike
 from app.me.preferences import Preferences, PreferencesPatch, load_preferences
-from app.schemas import AlbumOut, ArtistOut, Page, TrackOut
+from app.schemas import AlbumOut, ApiModel, ArtistOut, Page, TrackOut
 
 router = APIRouter(prefix="/me", tags=["me"])
 
 
-class PlayIn(BaseModel):
+class PlayIn(ApiModel):
     track_id: uuid.UUID
     played_at: datetime | None = None
     listened_ms: int | None = Field(default=None, ge=0)
 
 
-class RecentTrack(BaseModel):
+class RecentTrack(ApiModel):
     played_at: datetime
     track: TrackOut
 

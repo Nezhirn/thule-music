@@ -47,3 +47,13 @@ async def test_openapi_operation_ids_are_function_names(client):
     ids = [op["operationId"] for path in spec["paths"].values() for op in path.values()]
     assert len(ids) == len(set(ids))
     assert {"login", "list_albums", "get_stream_url", "stream_track", "health"} <= set(ids)
+
+
+async def test_openapi_requires_response_fields_that_have_defaults(client):
+    """Responses always include fields with defaults, requests may omit them; generated
+    clients take optionality from `required`."""
+    schemas = (await client.get("http://test/openapi.json")).json()["components"]["schemas"]
+    assert {"liked"} <= set(schemas["AlbumOut"]["required"])
+    assert {"language", "blur", "stream_quality"} <= set(schemas["Preferences"]["required"])
+    assert "role" not in schemas["RegisterIn"]["required"]
+    assert "required" not in schemas["PreferencesPatch"]

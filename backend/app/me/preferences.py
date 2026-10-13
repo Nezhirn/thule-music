@@ -2,15 +2,16 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import ConfigDict, StringConstraints, ValidationError
 
 from app.media.router import Quality
+from app.schemas import ApiModel
 
 Language = Literal["ru", "en"]
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$", to_lower=True)]
 
 
-class Preferences(BaseModel):
+class Preferences(ApiModel):
     model_config = ConfigDict(extra="ignore")
 
     # None: follow the device language.
@@ -24,7 +25,7 @@ class Preferences(BaseModel):
     stream_quality: Quality = Quality.high
 
 
-class PreferencesPatch(BaseModel):
+class PreferencesPatch(ApiModel):
     """Changes only the fields that are sent; `null` resets a field to its default."""
 
     model_config = ConfigDict(extra="forbid")

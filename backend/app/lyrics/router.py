@@ -1,22 +1,22 @@
 import uuid
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
 from app.lyrics.lrc import parse_lrc
 from app.lyrics.models import Lyrics
+from app.schemas import ApiModel
 
 router = APIRouter(tags=["lyrics"])
 
 
-class LyricLine(BaseModel):
+class LyricLine(ApiModel):
     time_ms: int
     text: str
 
 
-class LyricsOut(BaseModel):
+class LyricsOut(ApiModel):
     track_id: uuid.UUID
     source: str
     instrumental: bool

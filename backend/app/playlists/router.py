@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import ARRAY, Uuid, func, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,22 +13,22 @@ from app.errors import ApiError, ErrorCode
 from app.library.models import Album, Track
 from app.library.queries import TRACK_LOAD, liked_ids, track_out
 from app.playlists.models import Playlist, PlaylistItem
-from app.schemas import TrackOut
+from app.schemas import ApiModel, TrackOut
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
 
-class PlaylistIn(BaseModel):
+class PlaylistIn(ApiModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = Field(default=None, max_length=4000)
 
 
-class PlaylistPatch(BaseModel):
+class PlaylistPatch(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = Field(default=None, max_length=4000)
 
 
-class PlaylistOut(BaseModel):
+class PlaylistOut(ApiModel):
     id: uuid.UUID
     name: str
     description: str | None
@@ -40,7 +40,7 @@ class PlaylistOut(BaseModel):
     updated_at: datetime
 
 
-class PlaylistItemOut(BaseModel):
+class PlaylistItemOut(ApiModel):
     item_id: uuid.UUID
     position: int
     added_at: datetime
@@ -51,13 +51,13 @@ class PlaylistDetail(PlaylistOut):
     items: list[PlaylistItemOut]
 
 
-class AddTracksIn(BaseModel):
+class AddTracksIn(ApiModel):
     track_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
     # Insert before this position; omitted = append.
     position: int | None = Field(default=None, ge=0)
 
 
-class MoveIn(BaseModel):
+class MoveIn(ApiModel):
     item_id: uuid.UUID
     position: int = Field(ge=0)
 

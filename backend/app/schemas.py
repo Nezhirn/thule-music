@@ -1,19 +1,28 @@
-"""Response shapes shared by several routers (library, playlists, home, search, me)."""
+"""Base of API bodies, and response shapes shared by several routers (library, playlists,
+home, search, me)."""
 
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
-class Page[T](BaseModel):
+class ApiModel(BaseModel):
+    """Base of request and response bodies. A field with a default is always present in a
+    response, so the OpenAPI schema lists it as required there and generated clients don't
+    make it optional; in requests it stays optional."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+
+class Page[T](ApiModel):
     items: list[T]
     total: int
     limit: int
     offset: int
 
 
-class CoverPalette(BaseModel):
+class CoverPalette(ApiModel):
     """Colours of a cover, for tinting the UI after it (#rrggbb)."""
 
     average: str
@@ -26,19 +35,19 @@ class CoverPalette(BaseModel):
     luminance: float
 
 
-class ArtistRef(BaseModel):
+class ArtistRef(ApiModel):
     id: uuid.UUID
     name: str
 
 
-class AlbumRef(BaseModel):
+class AlbumRef(ApiModel):
     id: uuid.UUID
     title: str
     cover_id: uuid.UUID | None
     cover_palette: CoverPalette | None
 
 
-class TrackOut(BaseModel):
+class TrackOut(ApiModel):
     id: uuid.UUID
     title: str
     duration_ms: int
@@ -52,7 +61,7 @@ class TrackOut(BaseModel):
     liked: bool = False
 
 
-class AlbumOut(BaseModel):
+class AlbumOut(ApiModel):
     id: uuid.UUID
     title: str
     year: int | None
@@ -69,7 +78,7 @@ class AlbumDetail(AlbumOut):
     tracks: list[TrackOut]
 
 
-class ArtistOut(BaseModel):
+class ArtistOut(ApiModel):
     id: uuid.UUID
     name: str
     cover_id: uuid.UUID | None

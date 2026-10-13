@@ -6,7 +6,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
@@ -15,6 +14,7 @@ from app.library.covers import COVER_SIZES, cover_file
 from app.library.importer import resolve_in_library
 from app.library.models import Cover, Track, TrackFile, Variant
 from app.media import signing
+from app.schemas import ApiModel
 
 router = APIRouter(tags=["media"])
 
@@ -36,7 +36,7 @@ class Quality(enum.StrEnum):
     low = "low"  # Opus 96k
 
 
-class StreamUrl(BaseModel):
+class StreamUrl(ApiModel):
     # Path + query, without scheme and host: resolve it against the server address.
     url: str
     quality: Quality
