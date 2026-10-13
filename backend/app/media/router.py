@@ -12,7 +12,7 @@ from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
 from app.library.covers import COVER_SIZES, cover_file
 from app.library.importer import resolve_in_library
-from app.library.models import Cover, Track, TrackFile, Variant
+from app.library.models import VARIANT_BITRATES, Cover, Track, TrackFile, Variant
 from app.media import signing
 from app.schemas import ApiModel
 
@@ -40,6 +40,9 @@ class StreamUrl(ApiModel):
     # Path + query, without scheme and host: resolve it against the server address.
     url: str
     quality: Quality
+    # What the URL plays: "opus" for a transcode, the file's codec for the original.
+    codec: str
+    bitrate: int | None  # kbit/s
     expires_at: datetime
 
 
@@ -59,7 +62,8 @@ async def get_stream_url(
     The URL is pinned to a rendition that exists right now: if the requested transcode is
     not ready yet, it points at the original. Otherwise a transcode finishing mid-playback
     would make later Range requests read a different file."""
-    if await session.get(Track, track_id) is None:
+    track = await session.get(Track, track_id)
+    if track is None:
         raise ApiError(ErrorCode.track_not_found)
     if quality != Quality.original and not await session.scalar(
         select(TrackFile.id).where(
@@ -73,9 +77,12 @@ async def get_stream_url(
     url = request.url_for("stream_track", track_id=track_id).include_query_params(
         quality=quality.value, exp=expires, sig=sig
     )
+    transcoded = quality != Quality.original
     return StreamUrl(
         url=f"{url.path}?{url.query}",
         quality=quality,
+        codec="opus" if transcoded else track.codec,
+        bitrate=VARIANT_BITRATES[Variant(quality.value)] if transcoded else track.bitrate,
         expires_at=datetime.fromtimestamp(expires, UTC),
     )
 

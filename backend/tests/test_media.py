@@ -55,6 +55,7 @@ async def test_signed_url_plays_without_auth(client, admin, make_audio, run_jobs
 
     signed = (await client.get(f"/tracks/{track['id']}/stream-url", headers=admin)).json()
     assert signed["quality"] == "high"
+    assert (signed["codec"], signed["bitrate"]) == ("opus", 160)
     resp = await client.get(path_and_query(signed["url"]))
     assert resp.status_code == 200
     assert resp.headers["x-thule-quality"] == "high"
@@ -75,6 +76,7 @@ async def test_signed_url_is_pinned_to_original_until_transcoded(
         await session.commit()
     signed = (await client.get(f"/tracks/{track['id']}/stream-url", headers=admin)).json()
     assert signed["quality"] == "original"
+    assert (signed["codec"], signed["bitrate"]) == ("mp3", track["bitrate"])
     resp = await client.get(path_and_query(signed["url"]))
     assert resp.headers["x-thule-quality"] == "original"
 

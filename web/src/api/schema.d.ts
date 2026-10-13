@@ -1348,6 +1348,10 @@ export interface components {
             /** Url */
             url: string;
             quality: components["schemas"]["Quality"];
+            /** Codec */
+            codec: string;
+            /** Bitrate */
+            bitrate: number | null;
             /**
              * Expires At
              * Format: date-time
