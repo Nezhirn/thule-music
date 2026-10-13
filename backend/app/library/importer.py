@@ -17,7 +17,7 @@ from app.config import AUDIO_EXTENSIONS
 from app.jobs.context import JobContext
 from app.jobs.queue import enqueue
 from app.library.covers import store_cover
-from app.library.models import Album, Artist, Track, name_key
+from app.library.models import Album, Artist, Cover, Track, name_key
 from app.library.tags import folder_cover, read_tags
 
 log = logging.getLogger(__name__)
@@ -213,6 +213,8 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
                 delete(Track).where(Track.path == any_(literal(removed, ARRAY(String))))
             )
             await delete_orphans(session)
+        if await session.scalar(select(exists().where(Cover.palette.is_(None)))):
+            await enqueue(session, "cover_palettes", dedupe_key="cover_palettes")
         await session.commit()
     log.info(
         "scan: %d files, %d moved, %d to import, %d removed",

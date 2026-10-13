@@ -47,7 +47,7 @@ async def test_scan_imports_tags_covers_and_groups_albums(
     albums = (await client.get("/albums?sort=title", headers=admin)).json()["items"]
     night = next(a for a in albums if a["title"] == "Night")
     assert night["year"] == 2020
-    assert night["cover_color"] == "#c82828"
+    assert night["cover_palette"]["average"] == "#c82828"
 
     detail = (await client.get(f"/albums/{night['id']}", headers=admin)).json()
     assert [t["title"] for t in detail["tracks"]] == ["A Line in the Dust", "Second"]
@@ -56,7 +56,7 @@ async def test_scan_imports_tags_covers_and_groups_albums(
 
     # FLAC got its artwork from the folder's cover.png
     lune = next(a for a in albums if a["title"] == "Écailles de Lune")
-    assert lune["cover_color"] == "#0a0a5a"
+    assert lune["cover_palette"]["average"] == "#0a0a5a"
     cover = await client.get(f"/covers/{lune['cover_id']}?size=64")
     assert cover.status_code == 200
     assert cover.headers["content-type"] == "image/jpeg"

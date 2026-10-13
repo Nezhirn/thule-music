@@ -13,6 +13,19 @@ class Page[T](BaseModel):
     offset: int
 
 
+class CoverPalette(BaseModel):
+    """Colours of a cover, for tinting the UI after it (#rrggbb)."""
+
+    average: str
+    dominant: str
+    # Calm colour for backgrounds and glass.
+    muted: str
+    # Most vivid colour; None when the cover is essentially greyscale.
+    vibrant: str | None
+    # WCAG relative luminance of the average colour, 0 (black) to 1 (white).
+    luminance: float
+
+
 class ArtistRef(BaseModel):
     id: uuid.UUID
     name: str
@@ -22,7 +35,7 @@ class AlbumRef(BaseModel):
     id: uuid.UUID
     title: str
     cover_id: uuid.UUID | None
-    cover_color: str | None
+    cover_palette: CoverPalette | None
 
 
 class TrackOut(BaseModel):
@@ -46,7 +59,7 @@ class AlbumOut(BaseModel):
     genre: str | None
     artist: ArtistRef
     cover_id: uuid.UUID | None
-    cover_color: str | None
+    cover_palette: CoverPalette | None
     added_at: datetime
     liked: bool = False
 
@@ -60,6 +73,7 @@ class ArtistOut(BaseModel):
     id: uuid.UUID
     name: str
     cover_id: uuid.UUID | None
+    cover_palette: CoverPalette | None
     album_count: int
     liked: bool = False
 

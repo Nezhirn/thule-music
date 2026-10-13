@@ -1,8 +1,10 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, UUIDPk, utcnow
@@ -20,8 +22,11 @@ class Cover(UUIDPk, Base):
     source_hash: Mapped[str] = mapped_column(String(64), unique=True)
     width: Mapped[int]
     height: Mapped[int]
-    # Average colour as #rrggbb; clients use it to tint the glass UI.
+    # Average colour as #rrggbb.
     color: Mapped[str] = mapped_column(String(7))
+    # See app.library.covers.compute_palette. NULL for covers stored before palettes existed
+    # until the `cover_palettes` job fills it in.
+    palette: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

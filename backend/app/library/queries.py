@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
 
-from app.library.models import Album, Artist, Track
+from app.library.covers import palette_from_color
+from app.library.models import Album, Artist, Cover, Track
 from app.me.models import AlbumLike, ArtistLike, TrackLike
-from app.schemas import AlbumOut, AlbumRef, ArtistOut, ArtistRef, TrackOut
+from app.schemas import AlbumOut, AlbumRef, ArtistOut, ArtistRef, CoverPalette, TrackOut
 
 TRACK_LOAD: list[LoaderOption] = [
     selectinload(Track.artist),
@@ -55,12 +56,18 @@ async def liked_ids(
     return await _liked(session, TrackLike, TrackLike.track_id, user_id, track_ids)
 
 
+def cover_palette(cover: Cover | None) -> CoverPalette | None:
+    if cover is None:
+        return None
+    return CoverPalette.model_validate(cover.palette or palette_from_color(cover.color))
+
+
 def album_ref(album: Album) -> AlbumRef:
     return AlbumRef(
         id=album.id,
         title=album.title,
         cover_id=album.cover_id,
-        cover_color=album.cover.color if album.cover else None,
+        cover_palette=cover_palette(album.cover),
     )
 
 
@@ -95,7 +102,7 @@ def album_out(album: Album, liked: set[uuid.UUID] | None = None) -> AlbumOut:
         genre=album.genre,
         artist=ArtistRef(id=album.artist.id, name=album.artist.name),
         cover_id=album.cover_id,
-        cover_color=album.cover.color if album.cover else None,
+        cover_palette=cover_palette(album.cover),
         added_at=album.added_at,
         liked=liked is not None and album.id in liked,
     )
@@ -124,11 +131,12 @@ async def artists_out(
             )
         ).all()
     )
-    covers = dict(
+    covers: dict[uuid.UUID, Cover] = dict(
         (
             await session.execute(
-                select(Album.artist_id, Album.cover_id)
-                .where(Album.artist_id.in_(ids), Album.cover_id.is_not(None))
+                select(Album.artist_id, Cover)
+                .join(Cover, Cover.id == Album.cover_id)
+                .where(Album.artist_id.in_(ids))
                 .ext(distinct_on(Album.artist_id))
                 .order_by(Album.artist_id, Album.year.desc().nulls_last(), Album.added_at.desc())
             )
@@ -139,7 +147,8 @@ async def artists_out(
         ArtistOut(
             id=a.id,
             name=a.name,
-            cover_id=covers.get(a.id),
+            cover_id=cover.id if (cover := covers.get(a.id)) else None,
+            cover_palette=cover_palette(cover),
             album_count=counts.get(a.id, 0),
             liked=a.id in liked,
         )
