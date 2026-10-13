@@ -1,0 +1,467 @@
+.tabs {
+  margin-bottom: 24px;
+}
+
+.tabList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-md);
+  background: var(--field);
+}
+
+.tab {
+  display: block;
+  padding: 8px 16px;
+  border-radius: calc(var(--radius-md) - 4px);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+
+.cards {
+  display: grid;
+  gap: 16px;
+  max-width: 880px;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- library ------------------------------------------------------------------------------ */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 12px;
+}
+
+.stats[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--field);
+}
+
+.statValue {
+  margin: 0;
+  font-size: var(--text-xl);
+  white-space: nowrap;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.statLabel {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.scanState {
+  display: grid;
+  gap: 10px;
+}
+
+.scanState:empty {
+  display: none;
+}
+
+.scanText:empty {
+  display: none;
+}
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border: none;
+  border-radius: 999px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+.progress::-webkit-progress-bar {
+  background: var(--field);
+}
+
+.progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/* Without a value: something is going on, how much of it is unknown. */
+.progress:indeterminate {
+  background: linear-gradient(90deg, var(--field) 20%, var(--accent) 50%, var(--field) 80%);
+  background-size: 250% 100%;
+  animation: sweep 1.4s linear infinite;
+}
+
+.progress:indeterminate::-webkit-progress-bar {
+  background: transparent;
+}
+
+.progress:indeterminate::-moz-progress-bar {
+  background: transparent;
+}
+
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress:indeterminate {
+    animation: none;
+    background: var(--accent);
+    opacity: 0.6;
+  }
+}
+
+.progressText {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.lastScan {
+  display: grid;
+  gap: 2px;
+}
+
+.start {
+  justify-self: start;
+}
+
+.group {
+  display: grid;
+  gap: 10px;
+}
+
+.groupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.subheading {
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pending {
+  display: grid;
+}
+
+.pendingItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.pendingCount {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.jobs {
+  display: grid;
+}
+
+.job {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--divider);
+}
+
+.jobText {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.jobTitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.kind {
+  font-weight: 600;
+}
+
+.subject {
+  min-width: 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.jobError {
+  color: var(--danger);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.jobMeta {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* --- uploads ------------------------------------------------------------------------------ */
+
+.drop {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  border: 2px dashed var(--field-border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.drop[data-over] {
+  border-color: var(--accent-text);
+  background: var(--selected);
+}
+
+.drop .actions {
+  justify-content: center;
+}
+
+.dropIcon {
+  width: 40px;
+  height: 40px;
+  color: var(--accent-text);
+}
+
+.dropText {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.folders {
+  display: grid;
+  gap: 16px;
+}
+
+.folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.folderIcon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.upload {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--divider);
+}
+
+.uploadIcon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.upload[data-stage="uploading"] .uploadIcon,
+.upload[data-stage="importing"] .uploadIcon {
+  animation: spin 1s linear infinite;
+}
+
+.upload[data-stage="added"] .uploadIcon,
+.upload[data-stage="saved"] .uploadIcon {
+  color: var(--success);
+}
+
+.upload[data-stage="failed"] .uploadIcon,
+.upload[data-stage="error"] .uploadIcon {
+  color: var(--danger);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload .uploadIcon {
+    animation: none;
+  }
+}
+
+.uploadText {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.uploadName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.uploadState {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.uploadState a {
+  color: var(--accent-text);
+}
+
+/* --- users -------------------------------------------------------------------------------- */
+
+.buttonIcon {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+}
+
+.users {
+  display: grid;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--divider);
+}
+
+.userText {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.userName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--selected);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.menuTrigger {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.menuTrigger:hover,
+.menuTrigger[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.menuIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.form {
+  display: grid;
+  gap: 16px;
+}
+
+.roleField {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}

@@ -102,6 +102,36 @@ async function makeTrack(path, album, index, coverPath) {
   await ffmpeg([...input, ...picture, ...CODECS[album.format], ...metadata, path]);
 }
 
+/**
+ * Writes an album's files into `dir`: its tracks (in CD1, CD2... for several discs), their
+ * .lrc lyrics and its cover. `scratch` is for a cover to embed.
+ * @param {string} dir @param {AlbumSpec} album @param {string} scratch
+ */
+export async function writeAlbum(dir, album, scratch) {
+  await mkdir(dir, { recursive: true });
+  /** @type {string | undefined} */
+  let embedded;
+  if (album.cover?.in === "folder") await makeCover(join(dir, "cover.jpg"), album.cover.color);
+  if (album.cover?.in === "file") {
+    await mkdir(scratch, { recursive: true });
+    embedded = join(scratch, `${album.title}.jpg`);
+    await makeCover(embedded, album.cover.color);
+  }
+  await Promise.all(
+    album.tracks.map(async (spec, i) => {
+      const title = typeof spec === "string" ? spec : spec.title;
+      const { disc, number } = position(album, i);
+      const folder = album.discs ? join(dir, `CD${disc}`) : dir;
+      await mkdir(folder, { recursive: true });
+      const name = `${String(number).padStart(2, "0")} ${title}`;
+      if (typeof spec !== "string" && spec.lrc) {
+        await writeFile(join(folder, `${name}.lrc`), spec.lrc);
+      }
+      return makeTrack(join(folder, `${name}.${album.format}`), album, i, embedded);
+    }),
+  );
+}
+
 /** @param {string} root */
 export async function generateLibrary(root) {
   const specPath = new URL("library.json", import.meta.url);
@@ -115,36 +145,14 @@ export async function generateLibrary(root) {
 
   await rm(root, { recursive: true, force: true });
   const scratch = join(root, ".covers");
-  await mkdir(scratch, { recursive: true });
   /** @type {{ albums: AlbumSpec[] }} */
   const { albums } = JSON.parse(spec);
   await Promise.all(
-    albums.map(async (album) => {
-      const dir = join(root, album.artist, `${album.year} - ${album.title}`);
-      await mkdir(dir, { recursive: true });
-      /** @type {string | undefined} */
-      let embedded;
-      if (album.cover?.in === "folder") await makeCover(join(dir, "cover.jpg"), album.cover.color);
-      if (album.cover?.in === "file") {
-        embedded = join(scratch, `${album.title}.jpg`);
-        await makeCover(embedded, album.cover.color);
-      }
-      await Promise.all(
-        album.tracks.map(async (spec, i) => {
-          const title = typeof spec === "string" ? spec : spec.title;
-          const { disc, number } = position(album, i);
-          const folder = album.discs ? join(dir, `CD${disc}`) : dir;
-          await mkdir(folder, { recursive: true });
-          const name = `${String(number).padStart(2, "0")} ${title}`;
-          if (typeof spec !== "string" && spec.lrc) {
-            await writeFile(join(folder, `${name}.lrc`), spec.lrc);
-          }
-          return makeTrack(join(folder, `${name}.${album.format}`), album, i, embedded);
-        }),
-      );
-    }),
+    albums.map((album) =>
+      writeAlbum(join(root, album.artist, `${album.year} - ${album.title}`), album, scratch),
+    ),
   );
   // Not part of the library: the scan would only skip it, but keep the tree clean.
-  await rm(scratch, { recursive: true });
+  await rm(scratch, { recursive: true, force: true });
   await writeFile(stamp, fingerprint);
 }

@@ -78,10 +78,11 @@ function Group({
 
 function SectionLink({ id }: { id: SectionId }) {
   const { t } = useI18n();
-  const { path, icon: Icon } = SECTIONS[id];
+  const section = SECTIONS[id];
+  const { path, icon: Icon } = section;
   return (
     <li>
-      <NavLink to={path} end className={styles.link}>
+      <NavLink to={path} end={!("nested" in section)} className={styles.link}>
         <Icon className={styles.icon} />
         <span className={styles.label}>{sectionName(t, id)}</span>
       </NavLink>

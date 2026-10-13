@@ -26,8 +26,9 @@ export const SECTIONS = {
   liked: { path: "/liked", icon: Heart },
   favorites: { path: "/favorites", icon: Star },
   history: { path: "/history", icon: History },
-  admin: { path: "/admin", icon: Shield },
-} satisfies Record<string, { path: string; icon: LucideIcon }>;
+  // Current on its subpages too (/admin/users).
+  admin: { path: "/admin", icon: Shield, nested: true },
+} satisfies Record<string, { path: string; icon: LucideIcon; nested?: boolean }>;
 
 /** The sections in the library: a group in the sidebar, the library page on phones. */
 export const LIBRARY_SECTIONS = [

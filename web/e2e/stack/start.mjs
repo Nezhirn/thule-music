@@ -25,6 +25,8 @@ try {
   process.exit(1);
 }
 await generateLibrary(`${stand}library`);
+// What the admin tests uploaded last time.
+await rm(`${stand}library/uploads`, { recursive: true, force: true });
 await rm(`${stand}data`, { recursive: true, force: true });
 await mkdir(`${stand}logs`, { recursive: true });
 

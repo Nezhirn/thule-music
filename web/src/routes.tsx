@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 import { useMe } from "./account/me";
+import { AdminPage } from "./admin/AdminPage";
+import { LibraryAdmin } from "./admin/LibraryAdmin";
+import { UploadsAdmin } from "./admin/UploadsAdmin";
+import { UsersAdmin } from "./admin/UsersAdmin";
 import { LoginPage, type LoginState } from "./auth/LoginPage";
 import { useSession } from "./auth/session";
 import { SetupPage } from "./auth/SetupPage";
@@ -14,7 +18,6 @@ import { HomePage } from "./pages/HomePage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { LikedPage } from "./pages/LikedPage";
 import { LyricsPage } from "./pages/LyricsPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { PlaylistPage } from "./pages/PlaylistPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TracksPage } from "./pages/TracksPage";
@@ -50,10 +53,14 @@ export function AppRoutes() {
             path="admin"
             element={
               <AdminOnly>
-                <PlaceholderPage section="admin" />
+                <AdminPage />
               </AdminOnly>
             }
-          />
+          >
+            <Route index element={<LibraryAdmin />} />
+            <Route path="uploads" element={<UploadsAdmin />} />
+            <Route path="users" element={<UsersAdmin />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
