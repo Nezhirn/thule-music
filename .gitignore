@@ -1,3 +1,7 @@
 .env
 .idea/
 .vscode/
+# A Docker setup's host folders (see .env.example)
+/library/
+/data/
+/postgres/

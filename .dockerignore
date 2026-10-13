@@ -1,0 +1,16 @@
+# Only what the image is built from (the host folders of a compose setup, ./postgres above
+# all, must stay out of the build).
+*
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/alembic.ini
+!backend/alembic
+!backend/app
+!docker
+!web
+web/node_modules
+web/dist
+web/.e2e
+web/test-results
+web/playwright-report
+**/__pycache__

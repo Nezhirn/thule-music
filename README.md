@@ -2,7 +2,18 @@
 
 Self-hosted музыкальный сервис: сервер для вашей библиотеки + клиенты (web, Android, Linux). Архитектура и решения — в [docs/architecture.md](docs/architecture.md).
 
-Статус: **бэкенд готов**, идёт web-клиент; KMP-приложения — впереди. План — в [docs/roadmap.md](docs/roadmap.md).
+Статус: **сервер и web-клиент готовы**, KMP-приложения — впереди. План — в [docs/roadmap.md](docs/roadmap.md).
+
+## Установка
+
+Один Docker-образ: сервер вместе с web-клиентом.
+
+```bash
+cp .env.example .env   # THULE_SECRET_KEY, POSTGRES_PASSWORD, MUSIC_LIBRARY, PUID/PGID
+docker compose --profile local-db up -d --build
+```
+
+Приложение откроется на http://localhost:8000, при первом входе создаётся администратор. Как подключить свой Postgres, настроить HTTPS за обратным прокси, обновляться и делать резервные копии — в [docs/deploy.md](docs/deploy.md).
 
 ## Бэкенд
 
@@ -26,7 +37,7 @@ cp .env.example .env   # пропишите THULE_DATABASE_URL и THULE_SECRET_K
 .venv/bin/python -m app.jobs.worker
 ```
 
-Первый шаг: `POST /api/v1/auth/register` создаёт администратора (только первый пользователь; дальше аккаунты создаёт админ). Затем положите музыку в `THULE_LIBRARY_PATH` и вызовите `POST /api/v1/library/scan`. Документация API — http://localhost:8000/docs.
+Первый шаг: `POST /api/v1/auth/register` создаёт администратора (только первый пользователь; дальше аккаунты создаёт админ). Затем положите музыку в `THULE_LIBRARY_PATH` и вызовите `POST /api/v1/library/scan`. Документация API — http://localhost:8000/api/docs.
 
 ### Тесты
 
@@ -38,7 +49,7 @@ cp .env.example .env   # пропишите THULE_DATABASE_URL и THULE_SECRET_K
 
 ### Docker
 
-`docker compose up -d --build` поднимает `api` и `worker` и берёт настройки из `backend/.env`. Папка с музыкой задаётся переменной `MUSIC_LIBRARY` (по умолчанию `./library`).
+Образ собирается из корня репозитория (`Dockerfile`): веб-клиент, сервер с зависимостями из `uv.lock`, ffmpeg. Команды внутри — `thule serve`, `thule worker` и `thule migrate`. Подробности — в [docs/deploy.md](docs/deploy.md).
 
 ## Web-клиент
 
@@ -49,6 +60,8 @@ cd web
 npm ci
 npm run dev   # http://localhost:5173
 ```
+
+`npm run build` собирает приложение в `web/dist` (вместе со сжатыми brotli и gzip копиями файлов). Сервер раздаёт сборку сам, если указать её в `THULE_WEB_PATH`.
 
 Типы API генерируются из OpenAPI бэкенда. После изменений в API выполните `npm run api:types`. Скрипт запускает Python из `backend/.venv`, другой путь задаётся в `THULE_PYTHON`.
 
@@ -63,8 +76,10 @@ npm run dev   # http://localhost:5173
 E2E-стенд поднимается сам (`web/e2e/stack/`):
 - пересоздаёт схему `thule_e2e` в базе из `backend/.env`;
 - генерирует ffmpeg'ом библиотеку по `e2e/stack/library.json`;
-- запускает API на порту 8100 и воркер;
-- собирает фронт и отдаёт его через `vite preview` на порту 4174.
+- собирает фронт;
+- запускает на порту 8100 API, который раздаёт эту сборку, как в продакшне, и воркер.
+
+Тест падает, если страница нарушила Content Security Policy сервера.
 
 Каждый прогон начинается с пустой базы. Сначала идут тесты первого запуска, затем создание админа и скан, затем остальные тесты. Логи бэкенда лежат в `web/.e2e/logs/`, отчёт открывается командой `npx playwright show-report`. Playwright закреплён на версии 1.56.1, под Chromium облачного окружения. Локально браузер нужно один раз поставить: `npx playwright install chromium`.
 
