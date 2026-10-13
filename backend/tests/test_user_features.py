@@ -152,6 +152,44 @@ async def test_plays_recent_and_home(client, user, catalog):
     assert [a["title"] for a in home["for_you"]] == ["Solar"]
 
 
+async def test_history_lists_every_play_in_pages(client, user, admin, catalog):
+    names = ["Dissolution", "Lethean", "Dissolution", "Solitude", "A Line in the Dust"]
+    for name in names:
+        await client.post("/me/plays", json={"track_id": catalog[name]["id"]}, headers=user)
+    await client.post("/me/plays", json={"track_id": catalog["Lethean"]["id"]}, headers=admin)
+
+    first = (await client.get("/me/history", params={"limit": 2}, headers=user)).json()
+    assert [p["track"]["title"] for p in first["items"]] == ["A Line in the Dust", "Solitude"]
+    # A play recorded meanwhile doesn't shift the next page.
+    await client.post("/me/plays", json={"track_id": catalog["Solitude"]["id"]}, headers=user)
+    second = (
+        await client.get("/me/history", params={"limit": 2, "before": first["next"]}, headers=user)
+    ).json()
+    assert [p["track"]["title"] for p in second["items"]] == ["Dissolution", "Lethean"]
+    last = (
+        await client.get("/me/history", params={"limit": 2, "before": second["next"]}, headers=user)
+    ).json()
+    assert [p["track"]["title"] for p in last["items"]] == ["Dissolution"]
+    assert last["next"] is None
+
+    # Someone else's play is no place to page from.
+    theirs = (await client.get("/me/history", headers=admin)).json()["items"][0]["id"]
+    other = await client.get("/me/history", params={"before": theirs}, headers=user)
+    assert other.json() == {"items": [], "next": None}
+
+
+async def test_clearing_history_forgets_plays(client, user, admin, catalog):
+    for headers in (user, admin):
+        await client.post("/me/plays", json={"track_id": catalog["Lethean"]["id"]}, headers=headers)
+    cleared = await client.delete("/me/history", headers=user)
+    assert cleared.status_code == 204
+    assert (await client.get("/me/history", headers=user)).json() == {"items": [], "next": None}
+    assert (await client.get("/me/recent", headers=user)).json() == []
+    assert (await client.get("/home", headers=user)).json()["recently_played"] == []
+    # Only theirs.
+    assert len((await client.get("/me/history", headers=admin)).json()["items"]) == 1
+
+
 async def test_artist_page_ranks_top_tracks_by_plays(client, user, catalog):
     await client.post("/me/plays", json={"track_id": catalog["Lethean"]["id"]}, headers=user)
     artist_id = catalog["Lethean"]["artist"]["id"]

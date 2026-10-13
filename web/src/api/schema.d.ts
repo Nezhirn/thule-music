@@ -741,6 +741,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description Every play, newest first. Paged by the last play of the previous page (`before`), so
+         *     plays recorded while the list is read don't shift the pages.
+         */
+        get: operations["list_history"];
+        put?: never;
+        post?: never;
+        /**
+         * Clear History
+         * @description Forgets every play: history, "Recently played", and what "For you" learnt from them.
+         */
+        delete: operations["clear_history"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/preferences": {
         parameters: {
             query?: never;
@@ -1006,6 +1031,13 @@ export interface components {
             /** Album Count */
             album_count: number;
         };
+        /** History */
+        History: {
+            /** Items */
+            items: components["schemas"]["Play"][];
+            /** Next */
+            next: string | null;
+        };
         /** HomeOut */
         HomeOut: {
             /** Recently Added */
@@ -1154,6 +1186,20 @@ export interface components {
         PasswordReset: {
             /** New Password */
             new_password: string;
+        };
+        /** Play */
+        Play: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Played At
+             * Format: date-time
+             */
+            played_at: string;
+            track: components["schemas"]["TrackOut"];
         };
         /** PlayIn */
         PlayIn: {
@@ -2952,6 +2998,65 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecentTrack"][];
                 };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    list_history: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["History"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    clear_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             "4XX": {

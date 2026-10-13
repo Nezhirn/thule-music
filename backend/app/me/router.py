@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from pydantic import Field
-from sqlalchemy import ARRAY, Text, delete, func, literal, select, update
+from sqlalchemy import ARRAY, Text, delete, func, literal, select, tuple_, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 
 from app.auth.models import User
@@ -12,7 +12,15 @@ from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
 from app.library.models import Album, Artist, Track
-from app.library.queries import ALBUM_LOAD, album_out, artists_out, track_out, track_select
+from app.library.queries import (
+    ALBUM_LOAD,
+    TRACK_LOAD,
+    album_out,
+    artists_out,
+    liked_ids,
+    track_out,
+    track_select,
+)
 from app.me.models import AlbumLike, ArtistLike, PlayEvent, TrackLike
 from app.me.preferences import Preferences, PreferencesPatch, load_preferences
 from app.schemas import AlbumOut, ApiModel, ArtistOut, Page, TrackOut
@@ -29,6 +37,18 @@ class PlayIn(ApiModel):
 class RecentTrack(ApiModel):
     played_at: datetime
     track: TrackOut
+
+
+class Play(ApiModel):
+    id: uuid.UUID
+    played_at: datetime
+    track: TrackOut
+
+
+class History(ApiModel):
+    items: list[Play]
+    # The `before` of the next, older page; None after the oldest play.
+    next: uuid.UUID | None
 
 
 async def _ensure_track(session, track_id: uuid.UUID) -> None:
@@ -222,6 +242,54 @@ async def list_recent_tracks(
         )
     )
     return [RecentTrack(played_at=played_at, track=track_out(t, liked)) for t, played_at in rows]
+
+
+@router.get("/history", response_model=History)
+async def list_history(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: uuid.UUID | None = None,
+) -> History:
+    """Every play, newest first. Paged by the last play of the previous page (`before`), so
+    plays recorded while the list is read don't shift the pages."""
+    query = select(PlayEvent).where(PlayEvent.user_id == user.id)
+    if before is not None:
+        anchor = await session.get(PlayEvent, before)
+        if anchor is None or anchor.user_id != user.id:
+            # Cleared meanwhile (another device): nothing older to show.
+            return History(items=[], next=None)
+        query = query.where(
+            tuple_(PlayEvent.played_at, PlayEvent.id) < tuple_(anchor.played_at, anchor.id)
+        )
+    plays = (
+        await session.scalars(
+            query.order_by(PlayEvent.played_at.desc(), PlayEvent.id.desc()).limit(limit + 1)
+        )
+    ).all()
+    more = len(plays) > limit
+    plays = plays[:limit]
+    tracks = {
+        t.id: t
+        for t in await session.scalars(
+            select(Track).where(Track.id.in_({p.track_id for p in plays})).options(*TRACK_LOAD)
+        )
+    }
+    liked = await liked_ids(session, user.id, tracks)
+    return History(
+        items=[
+            Play(id=p.id, played_at=p.played_at, track=track_out(tracks[p.track_id], liked))
+            for p in plays
+        ],
+        next=plays[-1].id if more else None,
+    )
+
+
+@router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_history(session: SessionDep, user: CurrentUser) -> None:
+    """Forgets every play: history, "Recently played", and what "For you" learnt from them."""
+    await session.execute(delete(PlayEvent).where(PlayEvent.user_id == user.id))
+    await session.commit()
 
 
 @router.get("/preferences", response_model=Preferences)
