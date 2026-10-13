@@ -19,7 +19,7 @@ from app.library.models import Album, Artist, Track
 from app.library.queries import (
     ALBUM_LOAD,
     TRACK_ORDER,
-    album_out,
+    albums_out,
     artists_out,
     contains,
     track_select,
@@ -44,7 +44,7 @@ class AlbumSort(enum.StrEnum):
 @router.get("/artists", response_model=Page[ArtistOut])
 async def list_artists(
     session: SessionDep,
-    _: CurrentUser,
+    user: CurrentUser,
     limit: Limit = 50,
     offset: Offset = 0,
     q: str | None = None,
@@ -56,7 +56,9 @@ async def list_artists(
     artists = (
         await session.scalars(query.order_by(Artist.name_key).limit(limit).offset(offset))
     ).all()
-    return Page(items=await artists_out(session, artists), total=total, limit=limit, offset=offset)
+    return Page(
+        items=await artists_out(session, user.id, artists), total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/artists/{artist_id}", response_model=ArtistDetail)
@@ -86,10 +88,10 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
         )
     ).all()
 
-    (base,) = await artists_out(session, [artist])
+    (base,) = await artists_out(session, user.id, [artist])
     return ArtistDetail(
         **base.model_dump(),
-        albums=[album_out(a) for a in albums],
+        albums=await albums_out(session, user.id, albums),
         top_tracks=await tracks_out(session, user.id, top),
     )
 
@@ -97,7 +99,7 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
 @router.get("/albums", response_model=Page[AlbumOut])
 async def list_albums(
     session: SessionDep,
-    _: CurrentUser,
+    user: CurrentUser,
     limit: Limit = 50,
     offset: Offset = 0,
     sort: AlbumSort = AlbumSort.by_added,
@@ -120,7 +122,9 @@ async def list_albums(
             query.options(*ALBUM_LOAD).order_by(*order).limit(limit).offset(offset)
         )
     ).all()
-    return Page(items=[album_out(a) for a in albums], total=total, limit=limit, offset=offset)
+    return Page(
+        items=await albums_out(session, user.id, albums), total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/albums/{album_id}", response_model=AlbumDetail)
@@ -134,7 +138,7 @@ async def get_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser)
         )
     ).all()
     return AlbumDetail(
-        **album_out(album).model_dump(),
+        **(await albums_out(session, user.id, [album]))[0].model_dump(),
         duration_ms=sum(t.duration_ms for t in tracks),
         tracks=await tracks_out(session, user.id, tracks),
     )

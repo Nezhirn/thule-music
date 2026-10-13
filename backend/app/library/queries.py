@@ -6,11 +6,11 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
 
 from app.library.models import Album, Artist, Track
-from app.me.models import TrackLike
+from app.me.models import AlbumLike, ArtistLike, TrackLike
 from app.schemas import AlbumOut, AlbumRef, ArtistOut, ArtistRef, TrackOut
 
 TRACK_LOAD: list[LoaderOption] = [
@@ -33,16 +33,26 @@ def track_select() -> Select[Track]:
     return select(Track).options(*TRACK_LOAD)
 
 
-async def liked_ids(
-    session: AsyncSession, user_id: uuid.UUID, track_ids: Iterable[uuid.UUID]
+async def _liked(
+    session: AsyncSession,
+    like_model: type[TrackLike] | type[AlbumLike] | type[ArtistLike],
+    item_column: InstrumentedAttribute[uuid.UUID],
+    user_id: uuid.UUID,
+    item_ids: Iterable[uuid.UUID],
 ) -> set[uuid.UUID]:
-    ids = list(track_ids)
+    ids = list(item_ids)
     if not ids:
         return set()
     rows = await session.scalars(
-        select(TrackLike.track_id).where(TrackLike.user_id == user_id, TrackLike.track_id.in_(ids))
+        select(item_column).where(like_model.user_id == user_id, item_column.in_(ids))
     )
     return set(rows)
+
+
+async def liked_ids(
+    session: AsyncSession, user_id: uuid.UUID, track_ids: Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+    return await _liked(session, TrackLike, TrackLike.track_id, user_id, track_ids)
 
 
 def album_ref(album: Album) -> AlbumRef:
@@ -77,7 +87,7 @@ async def tracks_out(
     return [track_out(t, liked) for t in tracks]
 
 
-def album_out(album: Album) -> AlbumOut:
+def album_out(album: Album, liked: set[uuid.UUID] | None = None) -> AlbumOut:
     return AlbumOut(
         id=album.id,
         title=album.title,
@@ -87,11 +97,21 @@ def album_out(album: Album) -> AlbumOut:
         cover_id=album.cover_id,
         cover_color=album.cover.color if album.cover else None,
         added_at=album.added_at,
+        liked=liked is not None and album.id in liked,
     )
 
 
-async def artists_out(session: AsyncSession, artists: Sequence[Artist]) -> list[ArtistOut]:
-    """Adds album counts and a representative cover (newest album with artwork)."""
+async def albums_out(
+    session: AsyncSession, user_id: uuid.UUID, albums: Sequence[Album]
+) -> list[AlbumOut]:
+    liked = await _liked(session, AlbumLike, AlbumLike.album_id, user_id, (a.id for a in albums))
+    return [album_out(a, liked) for a in albums]
+
+
+async def artists_out(
+    session: AsyncSession, user_id: uuid.UUID, artists: Sequence[Artist]
+) -> list[ArtistOut]:
+    """Adds album counts, a representative cover (newest album with artwork) and the like."""
     ids = [a.id for a in artists]
     if not ids:
         return []
@@ -114,7 +134,14 @@ async def artists_out(session: AsyncSession, artists: Sequence[Artist]) -> list[
             )
         ).all()
     )
+    liked = await _liked(session, ArtistLike, ArtistLike.artist_id, user_id, ids)
     return [
-        ArtistOut(id=a.id, name=a.name, cover_id=covers.get(a.id), album_count=counts.get(a.id, 0))
+        ArtistOut(
+            id=a.id,
+            name=a.name,
+            cover_id=covers.get(a.id),
+            album_count=counts.get(a.id, 0),
+            liked=a.id in liked,
+        )
         for a in artists
     ]

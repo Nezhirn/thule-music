@@ -11,11 +11,11 @@ from app.auth.models import User
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
-from app.library.models import Track
-from app.library.queries import track_out, track_select
-from app.me.models import PlayEvent, TrackLike
+from app.library.models import Album, Artist, Track
+from app.library.queries import ALBUM_LOAD, album_out, artists_out, track_out, track_select
+from app.me.models import AlbumLike, ArtistLike, PlayEvent, TrackLike
 from app.me.preferences import Preferences, PreferencesPatch, load_preferences
-from app.schemas import Page, TrackOut
+from app.schemas import AlbumOut, ArtistOut, Page, TrackOut
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -80,6 +80,99 @@ async def list_liked_tracks(
     liked = {t.id for t in tracks}
     return Page(
         items=[track_out(t, liked) for t in tracks], total=total, limit=limit, offset=offset
+    )
+
+
+@router.put("/likes/albums/{album_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def like_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+    if await session.get(Album, album_id) is None:
+        raise ApiError(ErrorCode.album_not_found)
+    await session.execute(
+        insert(AlbumLike).values(user_id=user.id, album_id=album_id).on_conflict_do_nothing()
+    )
+    await session.commit()
+
+
+@router.delete("/likes/albums/{album_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unlike_album(album_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+    await session.execute(
+        delete(AlbumLike).where(AlbumLike.user_id == user.id, AlbumLike.album_id == album_id)
+    )
+    await session.commit()
+
+
+@router.get("/likes/albums", response_model=Page[AlbumOut])
+async def list_liked_albums(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[AlbumOut]:
+    """Saved albums, newest first."""
+    total = await session.scalar(
+        select(func.count()).select_from(AlbumLike).where(AlbumLike.user_id == user.id)
+    )
+    albums = (
+        await session.scalars(
+            select(Album)
+            .join(AlbumLike, AlbumLike.album_id == Album.id)
+            .where(AlbumLike.user_id == user.id)
+            .options(*ALBUM_LOAD)
+            .order_by(AlbumLike.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    liked = {a.id for a in albums}
+    return Page(
+        items=[album_out(a, liked) for a in albums], total=total or 0, limit=limit, offset=offset
+    )
+
+
+@router.put("/likes/artists/{artist_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def like_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+    if await session.get(Artist, artist_id) is None:
+        raise ApiError(ErrorCode.artist_not_found)
+    await session.execute(
+        insert(ArtistLike).values(user_id=user.id, artist_id=artist_id).on_conflict_do_nothing()
+    )
+    await session.commit()
+
+
+@router.delete("/likes/artists/{artist_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unlike_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUser) -> None:
+    await session.execute(
+        delete(ArtistLike).where(ArtistLike.user_id == user.id, ArtistLike.artist_id == artist_id)
+    )
+    await session.commit()
+
+
+@router.get("/likes/artists", response_model=Page[ArtistOut])
+async def list_liked_artists(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[ArtistOut]:
+    """Followed artists, newest first."""
+    total = await session.scalar(
+        select(func.count()).select_from(ArtistLike).where(ArtistLike.user_id == user.id)
+    )
+    artists = (
+        await session.scalars(
+            select(Artist)
+            .join(ArtistLike, ArtistLike.artist_id == Artist.id)
+            .where(ArtistLike.user_id == user.id)
+            .order_by(ArtistLike.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    return Page(
+        items=await artists_out(session, user.id, artists),
+        total=total or 0,
+        limit=limit,
+        offset=offset,
     )
 
 

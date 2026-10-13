@@ -96,6 +96,41 @@ async def test_likes(client, admin, user, catalog):
     assert (await client.get("/me/likes/tracks", headers=user)).json()["total"] == 0
 
 
+async def test_saved_albums_and_followed_artists(client, admin, user, catalog):
+    album = catalog["Lethean"]["album"]["id"]
+    artist = catalog["Lethean"]["artist"]["id"]
+    assert (await client.put(f"/me/likes/albums/{album}", headers=user)).status_code == 204
+    assert (await client.put(f"/me/likes/artists/{artist}", headers=user)).status_code == 204
+
+    saved = (await client.get("/me/likes/albums", headers=user)).json()
+    assert saved["total"] == 1 and saved["items"][0]["title"] == "Night"
+    assert saved["items"][0]["liked"] is True
+    followed = (await client.get("/me/likes/artists", headers=user)).json()
+    assert [a["name"] for a in followed["items"]] == ["Katatonia"]
+
+    # The flag shows up wherever albums and artists are listed, for this user only.
+    assert (await client.get(f"/albums/{album}", headers=user)).json()["liked"] is True
+    assert (await client.get(f"/albums/{album}", headers=admin)).json()["liked"] is False
+    albums = (await client.get("/albums", headers=user)).json()["items"]
+    assert {a["title"]: a["liked"] for a in albums} == {
+        "Night": True,
+        "Faith": False,
+        "Solar": False,
+    }
+    assert (await client.get(f"/artists/{artist}", headers=user)).json()["liked"] is True
+    home = (await client.get("/home", headers=user)).json()
+    assert any(a["liked"] for a in home["new_releases"])
+    found = (await client.get("/search?q=katatonia", headers=user)).json()
+    assert found["artists"][0]["liked"] is True
+
+    assert (await client.delete(f"/me/likes/albums/{album}", headers=user)).status_code == 204
+    assert (await client.get("/me/likes/albums", headers=user)).json()["total"] == 0
+    missing = await client.put(
+        "/me/likes/artists/00000000-0000-0000-0000-000000000000", headers=user
+    )
+    assert missing.json()["code"] == "artist_not_found"
+
+
 async def test_plays_recent_and_home(client, user, catalog):
     for name in ("Dissolution", "Lethean", "Dissolution"):
         resp = await client.post(

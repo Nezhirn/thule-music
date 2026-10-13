@@ -48,6 +48,7 @@ class AlbumOut(BaseModel):
     cover_id: uuid.UUID | None
     cover_color: str | None
     added_at: datetime
+    liked: bool = False
 
 
 class AlbumDetail(AlbumOut):
@@ -60,6 +61,7 @@ class ArtistOut(BaseModel):
     name: str
     cover_id: uuid.UUID | None
     album_count: int
+    liked: bool = False
 
 
 class ArtistDetail(ArtistOut):
