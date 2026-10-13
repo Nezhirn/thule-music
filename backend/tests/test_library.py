@@ -206,6 +206,7 @@ async def test_upload_rejects_non_audio(client, admin, settings):
 async def test_admin_endpoints_require_admin(client, user):
     assert (await client.post("/library/scan", headers=user)).status_code == 403
     assert (await client.get("/library/jobs", headers=user)).status_code == 403
+    assert (await client.get("/library/jobs/summary", headers=user)).status_code == 403
 
 
 async def test_jobs_listing(client, admin, make_audio, run_jobs):
@@ -219,6 +220,21 @@ async def test_jobs_listing(client, admin, make_audio, run_jobs):
         "fetch_lyrics",
     }
     assert all(j["status"] == "done" for j in jobs)
+
+
+async def test_jobs_summary(client, admin, make_audio, run_jobs):
+    make_audio("a/1.mp3", title="T", artist="A", album="X")
+    await client.post("/library/scan", headers=admin)
+    summary = (await client.get("/library/jobs/summary", headers=admin)).json()
+    assert summary["pending"] == 1 and summary["kinds"]["scan_library"]["queued"] == 1
+
+    await run_jobs()
+    summary = (await client.get("/library/jobs/summary", headers=admin)).json()
+    assert summary["pending"] == 0 and summary["failed"] == 0
+    assert summary["kinds"]["import_track"] == {"queued": 0, "running": 0, "done": 1, "failed": 0}
+
+    later = await client.get("/library/jobs/summary?since=2999-01-01T00:00:00Z", headers=admin)
+    assert later.json() == {"kinds": {}, "pending": 0, "failed": 0}
 
 
 def test_resolve_in_library_blocks_traversal(tmp_path):

@@ -3,6 +3,7 @@ import enum
 import re
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, BinaryIO
 
@@ -185,6 +186,21 @@ class JobOut(BaseModel):
     error: str | None
 
 
+class JobCounts(BaseModel):
+    queued: int = 0
+    running: int = 0
+    done: int = 0
+    failed: int = 0
+
+
+class JobSummary(BaseModel):
+    # Per job kind: scan_library, import_track, transcode, fetch_lyrics, ...
+    kinds: dict[str, JobCounts]
+    # Work left over all kinds (queued + running); 0 when the library is up to date.
+    pending: int
+    failed: int
+
+
 class UploadResult(BaseModel):
     path: str
 
@@ -259,3 +275,22 @@ async def list_jobs(
     if status_filter is not None:
         query = query.where(Job.status == status_filter)
     return list(await session.scalars(query))
+
+
+@admin_router.get("/jobs/summary", response_model=JobSummary)
+async def get_job_summary(
+    session: SessionDep, _: AdminUser, since: datetime | None = None
+) -> JobSummary:
+    """Progress of background work, for a scan/import indicator. `since` counts only jobs
+    created after that moment (e.g. when the client started a scan)."""
+    query = select(Job.kind, Job.status, func.count()).group_by(Job.kind, Job.status)
+    if since is not None:
+        query = query.where(Job.created_at >= since)
+    kinds: dict[str, JobCounts] = {}
+    for kind, job_status, count in await session.execute(query):
+        setattr(kinds.setdefault(kind, JobCounts()), job_status.value, count)
+    return JobSummary(
+        kinds=kinds,
+        pending=sum(c.queued + c.running for c in kinds.values()),
+        failed=sum(c.failed for c in kinds.values()),
+    )
