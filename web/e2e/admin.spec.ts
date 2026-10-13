@@ -531,7 +531,10 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
   await page.goto("/albums?sort=title");
   await page.getByRole("link", { name: "Northern Lights", exact: true }).click();
   const shared = page.getByRole("table").getByRole("row").filter({ hasText: "Shared Sky" });
-  await expect(shared.getByRole("link")).toHaveText(["Aurora Fields"]);
+  // Only the album's artist left on it: no artists' links, as for any such track.
+  await expect(shared).toBeVisible();
+  await expect(shared).not.toContainText("Mira Vale");
+  await expect(shared.getByRole("link")).toHaveCount(0);
 
   // An artist's everything given to another.
   await artist("Glass Harbor");
