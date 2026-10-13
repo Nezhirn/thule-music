@@ -9,13 +9,17 @@ from typing import Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from PIL.Image import DecompressionBombError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.jobs.context import JobContext
 from app.library.models import Cover
 
 COVER_SIZES = (64, 300, 600)
+
+# Taken shared by store_cover, exclusively by housekeeping before it deletes unused covers,
+# so it can't delete one that an import is about to reference.
+COVERS_LOCK = 0x636F_7672  # "covr"
 
 RGB = tuple[int, int, int]
 # Below this chroma a colour reads as grey.
@@ -119,6 +123,7 @@ def _render(data: bytes, covers_path: Path, source_hash: str) -> tuple[int, int,
 
 async def store_cover(session: AsyncSession, covers_path: Path, data: bytes) -> Cover | None:
     """Returns the Cover for these image bytes, creating it if new. None if not an image."""
+    await session.execute(select(func.pg_advisory_xact_lock_shared(COVERS_LOCK)))
     source_hash = hashlib.sha256(data).hexdigest()
     existing = await session.scalar(select(Cover).where(Cover.source_hash == source_hash))
     if existing is not None:
