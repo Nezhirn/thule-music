@@ -12,7 +12,19 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from sqlalchemy import ARRAY, String, Uuid, any_, delete, exists, func, literal, select, update
+from sqlalchemy import (
+    ARRAY,
+    String,
+    Uuid,
+    any_,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +35,7 @@ from app.library.covers import is_image, store_cover
 from app.library.models import Album, Artist, Cover, Track, TrackArtist, name_key
 from app.library.queries import TRACK_ORDER
 from app.library.tags import embedded_picture, folder_cover, pick_folder_cover, read_tags
+from app.lyrics.models import SIDECAR_SUFFIXES, Lyrics
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +71,16 @@ def art_folders(folder: str) -> list[str]:
     return [folder]
 
 
-def _walk(root: Path) -> tuple[dict[str, Stat], dict[str, tuple[str, float]]]:
-    """Audio files as {path: (size, mtime)}, and the album art image of each folder that has
-    one as {folder: (image path, mtime)}; paths relative to the root, the root folder is ""."""
+def _walk(
+    root: Path,
+) -> tuple[dict[str, Stat], dict[str, tuple[str, float]], dict[str, float]]:
+    """Audio files as {path: (size, mtime)}, the album art image of each folder that has one
+    as {folder: (image path, mtime)}, and the audio files with lyrics beside them (.lrc,
+    .txt) as {path: newest mtime of those}; paths relative to the root, the root folder is
+    ""."""
     found: dict[str, Stat] = {}
     images: dict[str, tuple[str, float]] = {}
+    lyrics: dict[str, float] = {}
     # (st_dev, st_ino) of the directories from the root down to each visited one. Symlinks
     # are followed, so a link back to an ancestor would otherwise repeat the subtree.
     ancestry: dict[str, frozenset[tuple[int, int]]] = {}
@@ -84,6 +102,7 @@ def _walk(root: Path) -> tuple[dict[str, Stat], dict[str, tuple[str, float]]]:
             with contextlib.suppress(OSError):
                 mtime = os.stat(Path(dirpath, image)).st_mtime
                 images[rel_dir] = (posixpath.join(rel_dir, image), mtime)
+        names = set(filenames)
         for name in filenames:
             if name.startswith(".") or Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
                 continue
@@ -92,8 +111,13 @@ def _walk(root: Path) -> tuple[dict[str, Stat], dict[str, tuple[str, float]]]:
                 st = full.stat()
             except OSError:
                 continue
-            found[full.relative_to(root).as_posix()] = (st.st_size, st.st_mtime)
-    return found, images
+            rel = full.relative_to(root).as_posix()
+            found[rel] = (st.st_size, st.st_mtime)
+            for sidecar in (full.with_suffix(suffix) for suffix in SIDECAR_SUFFIXES):
+                if sidecar.name in names:
+                    with contextlib.suppress(OSError):
+                        lyrics[rel] = max(lyrics.get(rel, 0.0), sidecar.stat().st_mtime)
+    return found, images, lyrics
 
 
 def _album_picture(root: Path, paths: list[str]) -> tuple[bytes, str, float] | None:
@@ -280,12 +304,42 @@ async def _find_moves(
     return moved | retagged, set(retagged)
 
 
+async def _stale_lyrics(
+    session: AsyncSession, tracks: dict[str, uuid.UUID], sidecars: dict[str, float]
+) -> list[uuid.UUID]:
+    """Tracks ({path: id}) whose lyrics must be fetched again: a lyrics file beside the
+    track that they don't come from yet or that changed since, or one they came from that
+    is gone."""
+    with_file = [tracks[path] for path in sidecars if path in tracks]
+    fetched = {
+        row.track_id: row
+        for row in await session.execute(
+            select(Lyrics.track_id, Lyrics.source, Lyrics.fetched_at).where(
+                or_(
+                    Lyrics.source == "sidecar",
+                    Lyrics.track_id == any_(literal(with_file, ARRAY(Uuid))),
+                )
+            )
+        )
+    }
+    stale = []
+    for path, track_id in tracks.items():
+        row = fetched.get(track_id)
+        mtime = sidecars.get(path)
+        if mtime is None:
+            if row is not None and row.source == "sidecar":
+                stale.append(track_id)
+        elif row is None or row.source != "sidecar" or mtime > row.fetched_at.timestamp():
+            stale.append(track_id)
+    return stale
+
+
 async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
     root = ctx.settings.library_path
     if not root.is_dir():
         raise FileNotFoundError(f"Library path does not exist: {root}")
     root = root.resolve()
-    on_disk, images = await asyncio.to_thread(_walk, root)
+    on_disk, images, sidecars = await asyncio.to_thread(_walk, root)
 
     async with ctx.sessionmaker() as session:
         known = {
@@ -319,6 +373,21 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> None:
         changed = [path for path, stat in on_disk.items() if needs_import(path, stat)]
         await enqueue_many(
             session, "import_track", [({"path": rel}, f"import:{rel}") for rel in changed]
+        )
+
+        # Lyrics files are not tracks either: one added, edited or removed beside a track
+        # that isn't imported again (which would fetch its lyrics) is noticed here.
+        importing = set(changed)
+        kept = {
+            path: moves[path] if path in moves else known[path].id
+            for path in on_disk
+            if path not in importing and (path in moves or path in known)
+        }
+        stale_lyrics = await _stale_lyrics(session, kept, sidecars)
+        await enqueue_many(
+            session,
+            "fetch_lyrics",
+            [({"track_id": str(i)}, f"lyrics:{i}") for i in stale_lyrics],
         )
         if removed:
             await session.execute(

@@ -808,7 +808,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search */
+        /**
+         * Search
+         * @description Artists, albums and tracks matching `q`, closest first; `type` asks for one kind
+         *     only, paged with `limit` and `offset`. Albums and tracks match their artist's name too
+         *     ("katatonia" lists their albums and tracks).
+         */
         get: operations["search"];
         put?: never;
         post?: never;
@@ -1384,6 +1389,11 @@ export interface components {
             /** Tracks */
             tracks: components["schemas"]["TrackOut"][];
         };
+        /**
+         * SearchType
+         * @enum {string}
+         */
+        SearchType: "artists" | "albums" | "tracks";
         /** SetupStatus */
         SetupStatus: {
             /** Needs Setup */
@@ -3167,6 +3177,8 @@ export interface operations {
             query: {
                 q: string;
                 limit?: number;
+                offset?: number;
+                type?: components["schemas"]["SearchType"] | null;
             };
             header?: never;
             path?: never;

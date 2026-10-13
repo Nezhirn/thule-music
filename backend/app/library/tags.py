@@ -185,7 +185,7 @@ def embedded_picture(path: Path) -> bytes | None:
     return None
 
 
-def _embedded_lyrics(path: Path) -> str | None:
+def embedded_lyrics(path: Path) -> str | None:
     audio = mutagen.File(path)
     if audio is None or audio.tags is None:
         return None
@@ -265,7 +265,7 @@ def read_tags(path: Path, *, lyrics: bool = True) -> TrackTags:
         codec=_codec(audio),
         bitrate=round(bitrate / 1000) if bitrate else None,
         sample_rate=getattr(audio.info, "sample_rate", None),
-        lyrics=_embedded_lyrics(path) if lyrics else None,
+        lyrics=embedded_lyrics(path) if lyrics else None,
     )
 
 

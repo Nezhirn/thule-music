@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base, utcnow
 
+# Lyrics files beside an audio file, with its name: "01 Song.lrc" for "01 Song.flac". The
+# first one found is read.
+SIDECAR_SUFFIXES = (".lrc", ".txt")
+
 
 class Lyrics(Base):
     __tablename__ = "lyrics"

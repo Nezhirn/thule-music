@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -12,8 +13,9 @@ from app.db import utcnow
 from app.jobs.context import JobContext
 from app.library.importer import resolve_in_library
 from app.library.models import Album, Track
+from app.library.tags import embedded_lyrics
 from app.lyrics.lrc import is_synced, to_plain
-from app.lyrics.models import Lyrics
+from app.lyrics.models import SIDECAR_SUFFIXES, Lyrics
 
 USER_AGENT = "thule-music/0.1 (self-hosted music server)"
 
@@ -55,6 +57,13 @@ async def _lrclib(ctx: JobContext, track: Track) -> dict[str, Any] | None:
     }
 
 
+def _read_embedded(path: Path) -> str | None:
+    try:
+        return embedded_lyrics(path)
+    except Exception:
+        return None  # unreadable now: the import reports it
+
+
 async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
     track_id = uuid.UUID(payload["track_id"])
     async with ctx.sessionmaker() as session:
@@ -70,7 +79,7 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
 
         found: dict[str, Any] | None = None
         audio = resolve_in_library(ctx.settings.library_path, track.path)
-        for suffix in (".lrc", ".txt"):
+        for suffix in SIDECAR_SUFFIXES:
             sidecar = audio.with_suffix(suffix)
             if sidecar.is_file():
                 text = await asyncio.to_thread(
@@ -79,8 +88,15 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
                 if text.strip():
                     found = _from_text(text, "sidecar")
                     break
-        if found is None and payload.get("embedded"):
-            found = _from_text(payload["embedded"], "embedded")
+        if found is None:
+            # The import passes what the tags hold; a scan that noticed a lyrics file come or
+            # go doesn't read the tags, so they are read here.
+            if "embedded" in payload:
+                embedded = payload["embedded"]
+            else:
+                embedded = await asyncio.to_thread(_read_embedded, audio)
+            if embedded:
+                found = _from_text(embedded, "embedded")
         if found is None and ctx.settings.lrclib_enabled:
             # Network errors propagate so the queue retries instead of caching a miss.
             found = await _lrclib(ctx, track)

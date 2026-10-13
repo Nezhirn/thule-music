@@ -1,5 +1,8 @@
 """Playlists, likes, play history, home feed, search and lyrics."""
 
+import os
+import time
+
 import httpx
 import pytest
 
@@ -220,6 +223,30 @@ async def test_search(client, user, catalog, query, artist, track):
         assert names == [] and titles == []
 
 
+async def test_search_lists_albums_by_their_artist(client, user, catalog):
+    result = (await client.get("/search", params={"q": "katatonia"}, headers=user)).json()
+    assert [a["title"] for a in result["albums"]] == ["Night"]
+    result = (await client.get("/search", params={"q": "faith"}, headers=user)).json()
+    assert [a["title"] for a in result["albums"]] == ["Faith"]
+
+
+async def test_search_for_one_kind_in_pages(client, user, catalog):
+    query = {"q": "katatonia", "type": "tracks", "limit": 1}
+    first = (await client.get("/search", params=query, headers=user)).json()
+    assert first["artists"] == [] and first["albums"] == []
+    assert [t["title"] for t in first["tracks"]] == ["A Line in the Dust"]
+    second = (await client.get("/search", params={**query, "offset": 1}, headers=user)).json()
+    assert [t["title"] for t in second["tracks"]] == ["Lethean"]
+    third = (await client.get("/search", params={**query, "offset": 2}, headers=user)).json()
+    assert third["tracks"] == []
+
+    artists = (
+        await client.get("/search", params={"q": "katatonia", "type": "artists"}, headers=user)
+    ).json()
+    assert [a["name"] for a in artists["artists"]] == ["Katatonia"]
+    assert artists["tracks"] == [] and artists["albums"] == []
+
+
 async def test_lyrics_sources(client, admin, make_audio, run_jobs, settings, lrclib_responses):
     settings.lrclib_enabled = True
     lrclib_responses["From Lrclib"] = httpx.Response(
@@ -256,3 +283,29 @@ async def test_lyrics_sources(client, admin, make_audio, run_jobs, settings, lrc
 
     missing = await client.get(f"/tracks/{tracks['Nothing']}/lyrics", headers=admin)
     assert missing.status_code == 404
+
+
+async def test_rescan_notices_lyrics_files(client, admin, make_audio, run_jobs):
+    audio = make_audio("l/1.mp3", title="Song", artist="A", album="L", lyrics="from the tags")
+
+    async def rescan() -> tuple[int, str | None]:
+        await client.post("/library/scan", headers=admin)
+        jobs = await run_jobs()
+        tracks = (await client.get("/tracks", headers=admin)).json()["items"]
+        lyrics = (await client.get(f"/tracks/{tracks[0]['id']}/lyrics", headers=admin)).json()
+        return jobs, lyrics["plain"]
+
+    assert (await rescan())[1] == "from the tags"
+    sidecar = audio.with_suffix(".lrc")
+    sidecar.write_text("[00:01.00]first", encoding="utf-8")
+    # The scan and the lyrics; the audio file is unchanged, so it isn't imported again.
+    assert await rescan() == (2, "first")
+    assert await rescan() == (1, "first")
+
+    sidecar.write_text("[00:01.00]second", encoding="utf-8")
+    later = time.time() + 2
+    os.utime(sidecar, (later, later))
+    assert await rescan() == (2, "second")
+
+    sidecar.unlink()
+    assert await rescan() == (2, "from the tags")
