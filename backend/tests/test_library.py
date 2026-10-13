@@ -376,3 +376,16 @@ async def test_genres_and_sorting(client, admin, make_audio, run_jobs):
     assert await tracks("title") == ["a", "b", "C", "d"]
     assert await tracks("artist") == ["d", "C", "a", "b"]
     assert await tracks("album") == ["b", "d", "a", "C"]
+
+
+async def test_recently_added_tracks_come_album_by_album(client, admin, make_audio, run_jobs):
+    make_audio("x/2.mp3", title="X2", artist="A", album="X", track=2)
+    await scan(client, admin, run_jobs)
+    # Album X is older than Y, though two of its tracks came with Y's.
+    for n in (3, 1):
+        make_audio(f"x/{n}.mp3", title=f"X{n}", artist="A", album="X", track=n)
+    for n in (2, 1):
+        make_audio(f"y/{n}.mp3", title=f"Y{n}", artist="A", album="Y", track=n)
+    await scan(client, admin, run_jobs)
+    page = (await client.get("/tracks?sort=added", headers=admin)).json()
+    assert [t["title"] for t in page["items"]] == ["Y1", "Y2", "X1", "X2", "X3"]

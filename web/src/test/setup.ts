@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import "./browser";
 import { focusManager } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { getAccessToken } from "../auth/tokens";

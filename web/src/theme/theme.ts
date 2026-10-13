@@ -53,6 +53,9 @@ const AMBIENT_MIN_LIGHTNESS = 0.3;
 const AMBIENT_MAX_CHROMA = 0.17;
 // The lightest a hovered or selected row on the glass gets (white at this alpha).
 export const HIGHLIGHT_ALPHA = 0.08;
+// The cover's colour behind an album's or artist's header, over the glass: as strong as it
+// gets without making the glass lighter than a highlighted row (a test checks).
+export const TINT_ALPHA = 0.2;
 
 /** The lightest surface text can end up on: glass over the brightest backdrop allowed, where
  * all three colour fields overlap, with a row highlight on top. */
@@ -111,6 +114,12 @@ export function ambientColors(
   return [0, 76, -65].map((step) =>
     toHex(ambientTone(fromOklch({ l: 0.6, c: chroma, h: h + step }))),
   ) as [string, string, string];
+}
+
+/** The colour that tints the header of an album or artist page: the cover's, calmed like the
+ * backdrop's. Drawn at TINT_ALPHA. */
+export function coverTint(palette: CoverPalette): string {
+  return toHex(ambientTone(parseHex(palette.vibrant ?? palette.dominant)));
 }
 
 /** A colour calm and dark enough for the backdrop, with its hue kept. */

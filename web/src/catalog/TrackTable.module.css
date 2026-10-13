@@ -1,0 +1,143 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-md);
+}
+
+th {
+  font-weight: 600;
+  text-align: left;
+}
+
+thead th {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+.row td:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.row td:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.row:hover td {
+  background: var(--hover);
+}
+
+.disc th {
+  padding: 20px 12px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+tbody:first-of-type .disc th {
+  padding-top: 12px;
+}
+
+.number {
+  width: 52px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.duration {
+  width: 76px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.clock {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+}
+
+.album {
+  width: 32%;
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cover {
+  flex: none;
+  width: 40px;
+  border-radius: 6px;
+}
+
+.titles {
+  display: grid;
+  min-width: 0;
+}
+
+.title,
+.credits,
+.albumLink {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  color: var(--text);
+}
+
+.credits {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.albumLink {
+  display: block;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.albumLink:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.inlineAlbum {
+  display: none;
+}
+
+/* Phones: no album column; the album goes under the title. */
+@media (max-width: 899px) {
+  .album {
+    display: none;
+  }
+
+  .inlineAlbum {
+    display: inline;
+  }
+
+  td,
+  thead th {
+    padding-inline: 8px;
+  }
+
+  .number {
+    width: 36px;
+  }
+
+  .duration {
+    width: 60px;
+  }
+}

@@ -1,6 +1,7 @@
-// Generates the E2E music library from library.json with ffmpeg: one folder per album, sine
-// tones with full tags, covers as a folder image or embedded in the files. Kept between runs
-// and rebuilt only when the spec or this generator changes.
+// Generates the E2E music library from library.json with ffmpeg: one folder per album (with
+// CD1, CD2... inside for several discs), sine tones with full tags, covers as a folder image or
+// embedded in the files. Kept between runs and rebuilt only when the spec or this generator
+// changes.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -10,13 +11,22 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 /**
+ * A track is its title, or its title and its own artist (a guest, a compilation's artists).
+ * @typedef {string | { title: string, artist: string }} TrackSpec
  * @typedef {{
  *   artist: string, title: string, year: number, genre: string,
  *   format: keyof typeof CODECS,
  *   cover: { in: "folder" | "file", color: string } | null,
- *   tracks: string[],
+ *   tracks: TrackSpec[],
+ *   discs?: number,
  * }} AlbumSpec
  */
+
+/** Disc and number on it of the album's `index`-th track: discs split the tracks evenly. */
+function position(/** @type {AlbumSpec} */ album, /** @type {number} */ index) {
+  const perDisc = Math.ceil(album.tracks.length / (album.discs ?? 1));
+  return { disc: Math.floor(index / perDisc) + 1, number: (index % perDisc) + 1, perDisc };
+}
 
 /** Seconds of each track: distinct, so tracks differ in duration too. */
 const trackSeconds = (/** @type {number} */ index) => 20 + 5 * index;
@@ -49,7 +59,9 @@ async function makeCover(path, color) {
  * @param {string | undefined} coverPath
  */
 async function makeTrack(path, album, index, coverPath) {
-  const title = album.tracks[index];
+  const spec = /** @type {TrackSpec} */ (album.tracks[index]);
+  const { title, artist } = typeof spec === "string" ? { title: spec, artist: album.artist } : spec;
+  const { disc, number, perDisc } = position(album, index);
   const input = [
     "-f",
     "lavfi",
@@ -72,12 +84,13 @@ async function makeTrack(path, album, index, coverPath) {
     : [];
   const tags = {
     title,
-    artist: album.artist,
+    artist,
     album_artist: album.artist,
     album: album.title,
     date: String(album.year),
     genre: album.genre,
-    track: `${index + 1}/${album.tracks.length}`,
+    track: `${number}/${perDisc}`,
+    ...(album.discs ? { disc: `${disc}/${album.discs}` } : {}),
   };
   const metadata = Object.entries(tags).flatMap(([key, value]) => ["-metadata", `${key}=${value}`]);
   await ffmpeg([...input, ...picture, ...CODECS[album.format], ...metadata, path]);
@@ -111,9 +124,13 @@ export async function generateLibrary(root) {
         await makeCover(embedded, album.cover.color);
       }
       await Promise.all(
-        album.tracks.map((title, i) => {
-          const name = `${String(i + 1).padStart(2, "0")} ${title}.${album.format}`;
-          return makeTrack(join(dir, name), album, i, embedded);
+        album.tracks.map(async (spec, i) => {
+          const title = typeof spec === "string" ? spec : spec.title;
+          const { disc, number } = position(album, i);
+          const folder = album.discs ? join(dir, `CD${disc}`) : dir;
+          await mkdir(folder, { recursive: true });
+          const name = `${String(number).padStart(2, "0")} ${title}.${album.format}`;
+          return makeTrack(join(folder, name), album, i, embedded);
         }),
       );
     }),

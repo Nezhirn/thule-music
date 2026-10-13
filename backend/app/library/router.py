@@ -195,11 +195,13 @@ async def list_tracks(
     query = track_select()
     if sort == TrackSort.by_artist:
         query = query.join(Artist, Artist.id == Track.artist_id)
-    if sort in (TrackSort.by_artist, TrackSort.by_album):
+    if sort != TrackSort.by_title:
         query = query.join(Album, Album.id == Track.album_id)
     in_album = (*TRACK_ORDER, Track.id)
     order = {
-        TrackSort.by_added: (Track.added_at.desc(), Track.id),
+        # Newest albums first, each in its own order: the tracks of one scan were added
+        # moments apart, in no particular order.
+        TrackSort.by_added: (Album.added_at.desc(), Album.id, *in_album),
         TrackSort.by_title: (func.lower(Track.title), Track.id),
         TrackSort.by_artist: (Artist.name_key, Album.year.nulls_last(), Album.title_key, *in_album),
         TrackSort.by_album: (Album.title_key, Album.id, *in_album),

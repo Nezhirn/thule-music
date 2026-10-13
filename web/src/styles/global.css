@@ -21,6 +21,13 @@
   initial-value: transparent;
 }
 
+/* Registered so the tint of the content panel fades from one album's colours to the next. */
+@property --page-tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
 :root {
   color-scheme: dark;
   --font:
@@ -47,6 +54,8 @@
   /* Rows and controls on the glass. Never lighter than the highlight theme.ts allows for. */
   --hover: rgb(255 255 255 / 0.06);
   --selected: rgb(255 255 255 / 0.08);
+  /* How strongly a cover's colour tints a header (TINT_ALPHA in theme.ts). */
+  --tint-strength: 20%;
   --field: rgb(255 255 255 / 0.06);
   --field-border: rgb(255 255 255 / 0.16);
   --divider: rgb(255 255 255 / 0.08);

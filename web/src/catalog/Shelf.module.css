@@ -1,0 +1,83 @@
+.shelf {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.more {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.more:hover {
+  color: var(--text);
+}
+
+.buttons {
+  display: flex;
+  gap: 4px;
+}
+
+/* Touch screens swipe instead. */
+@media (hover: none) {
+  .buttons {
+    display: none;
+  }
+}
+
+/* Room on the sides for the cards' hover background and focus ring, which the scroll
+   container would otherwise clip. */
+.row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 168px;
+  gap: 24px;
+  margin: -12px -12px 0;
+  padding: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 12px;
+  scrollbar-width: none;
+}
+
+.row::-webkit-scrollbar {
+  display: none;
+}
+
+.wide {
+  grid-auto-columns: min(560px, 85%);
+}
+
+.item {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+@media (max-width: 899px) {
+  .row {
+    grid-auto-columns: 140px;
+    gap: 16px;
+  }
+
+  .wide {
+    grid-auto-columns: 88%;
+  }
+}

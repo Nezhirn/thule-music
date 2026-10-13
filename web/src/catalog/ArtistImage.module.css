@@ -1,0 +1,22 @@
+.image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--selected);
+}
+
+.initial {
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: clamp(20px, 3.2vw, 56px);
+  font-weight: 650;
+  container-type: inline-size;
+}
+
+.initial span {
+  font-size: 40cqi;
+  line-height: 1;
+}

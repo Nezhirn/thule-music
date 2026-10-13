@@ -1,0 +1,77 @@
+/* A card whose title link covers all of it (::after), so the whole card is one click target
+   and one tab stop; links inside it (the artist) sit above that cover. */
+.card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  margin: -8px;
+  border-radius: calc(var(--radius-md) + 8px);
+  transition: background-color 0.15s;
+}
+
+.card:hover {
+  background: var(--hover);
+}
+
+.centered {
+  justify-items: center;
+  text-align: center;
+}
+
+.art {
+  margin-bottom: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+
+.title {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.title:focus-visible {
+  outline: none;
+}
+
+.title:focus-visible::after {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 0;
+}
+
+.detail {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* At least 24px tall: a target of its own next to the card's (WCAG 2.5.8). */
+.link {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  min-height: 24px;
+  line-height: 24px;
+  text-decoration: none;
+}
+
+.link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

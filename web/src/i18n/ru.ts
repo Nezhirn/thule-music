@@ -93,8 +93,64 @@ export const ru: Messages = {
       evening: (name: string) => `Добрый вечер, ${name}`,
       night: (name: string) => `Доброй ночи, ${name}`,
     },
-    soonTitle: "Музыка уже в пути",
-    soonText: "Новые альбомы и подборки для вас появятся здесь в одном из следующих обновлений.",
+    recentlyAdded: "Недавно добавленные",
+    forYou: "Для вас",
+    recentlyPlayed: "Недавно слушали",
+    newReleases: "Новые релизы",
+    genres: "Жанры",
+    emptyTitle: "В библиотеке пока пусто",
+    emptyText:
+      "Положите музыку в папку библиотеки на сервере — она появится здесь после сканирования.",
+  },
+  catalog: {
+    album: "Альбом",
+    compilation: "Сборник",
+    artist: "Артист",
+    seeAll: "Все",
+    showMore: "Показать ещё",
+    showLess: "Свернуть",
+    scrollBack: (shelf: string) => `${shelf}: назад`,
+    scrollForward: (shelf: string) => `${shelf}: вперёд`,
+    albums: (n: number) =>
+      plural("ru", n, {
+        one: "# альбом",
+        few: "# альбома",
+        many: "# альбомов",
+        other: "# альбома",
+      }),
+    tracks: (n: number) =>
+      plural("ru", n, { one: "# трек", few: "# трека", many: "# треков", other: "# трека" }),
+    length: (ms: number) => {
+      const total = Math.max(1, Math.round(ms / 60_000));
+      const hours = Math.floor(total / 60);
+      return hours ? `${hours} ч ${total % 60} мин` : `${total} мин`;
+    },
+    disc: (n: number) => `Диск ${n}`,
+    columns: { number: "№", title: "Название", album: "Альбом", duration: "Длительность" },
+    sort: "Сортировка",
+    albumSorts: {
+      added: "Недавно добавленные",
+      title: "По названию",
+      year: "По году",
+      artist: "По артисту",
+    },
+    trackSorts: {
+      added: "Недавно добавленные",
+      title: "По названию",
+      artist: "По артисту",
+      album: "По альбому",
+    },
+    genre: "Жанр",
+    allGenres: "Все",
+    noAlbums: "Альбомов пока нет.",
+    noArtists: "Артистов пока нет.",
+    noTracks: "Треков пока нет.",
+    loadFailed: "Не удалось загрузить.",
+    topTracks: "Популярные треки",
+    artistAlbums: "Альбомы",
+    appearsOn: "Участвует в",
+    moreBy: (artist: string) => `${artist}: другие альбомы`,
+    notFound: "Возможно, его убрали из библиотеки.",
   },
   placeholder: {
     title: "Раздел в разработке",

@@ -63,10 +63,19 @@ for (const [device, viewport] of [
     await expectAccessible(page);
     await page.keyboard.press("Escape");
 
-    for (const path of ["/settings", "/library", "/albums"]) {
+    const pages = ["/settings", "/library", "/albums", "/artists", "/tracks"];
+    for (const path of pages) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await expectAccessible(page);
     }
+    // An album and an artist, reached as a user would.
+    await page.goto("/albums?sort=title");
+    await page.getByRole("link", { name: "Deep Water" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Deep Water" })).toBeVisible();
+    await expectAccessible(page);
+    await page.getByRole("main").getByRole("link", { name: "The Glass Harbor" }).first().click();
+    await expect(page.getByRole("heading", { level: 1, name: "The Glass Harbor" })).toBeVisible();
+    await expectAccessible(page);
   });
 }

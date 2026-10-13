@@ -1,0 +1,48 @@
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.field {
+  position: relative;
+  display: inline-flex;
+}
+
+.select {
+  height: 34px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--field);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  appearance: none;
+  cursor: pointer;
+}
+
+.select:hover {
+  border-color: rgb(255 255 255 / 0.28);
+}
+
+/* The open list is drawn by the system: give it the dark theme's colours. */
+.select option {
+  background: #1e1f27;
+  color: var(--text);
+}
+
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}

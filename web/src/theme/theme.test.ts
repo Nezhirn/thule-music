@@ -13,10 +13,12 @@ import {
   SUCCESS,
   TEXT,
   TEXT_MUTED,
+  TINT_ALPHA,
   WORST_SURFACE,
   accentTokens,
   ambientColors,
   ambientTone,
+  coverTint,
 } from "./theme";
 
 // Deterministic pseudo-random colours (a fixed-seed LCG), so a failure reproduces.
@@ -29,13 +31,18 @@ function* colours(count: number): Generator<string> {
 }
 const SAMPLES = [...colours(400), "#000000", "#ffffff", "#808080", "#ffff00", "#00ff00", "#0000ff"];
 
-/** Glass over a backdrop where all three colour fields overlap, plus a row highlight. */
-function surfaceOver(fields: Rgb[]): Rgb {
+/** Glass over a backdrop where all three colour fields overlap. */
+function glassOver(fields: Rgb[]): Rgb {
   const backdrop = fields.reduce<Rgb>(
     (under, field, i) => over(field, AMBIENT_ALPHA[i] ?? 1, under),
     parseHex(BG),
   );
-  return over([255, 255, 255], HIGHLIGHT_ALPHA, over(parseHex(GLASS), GLASS_ALPHA, backdrop));
+  return over(parseHex(GLASS), GLASS_ALPHA, backdrop);
+}
+
+/** The same with a row highlight. */
+function surfaceOver(fields: Rgb[]): Rgb {
+  return over([255, 255, 255], HIGHLIGHT_ALPHA, glassOver(fields));
 }
 
 describe("colour", () => {
@@ -100,6 +107,16 @@ describe("backdrop", () => {
     }
   });
 
+  it("tints headers no lighter than the surface the text colours are checked against", () => {
+    const brightest = greyOf(AMBIENT_MAX_LUMINANCE);
+    const glass = glassOver([brightest, brightest, brightest]);
+    for (const hex of SAMPLES) {
+      const palette = { average: hex, dominant: hex, muted: hex, vibrant: hex, luminance: 0 };
+      const tinted = over(parseHex(coverTint(palette)), TINT_ALPHA, glass);
+      expect(luminance(tinted), hex).toBeLessThanOrEqual(luminance(WORST_SURFACE) + 1e-3);
+    }
+  });
+
   it("takes the cover's colours, toned down", () => {
     const [first, second, third] = ambientColors(DEFAULT_ACCENT, {
       average: "#806040",
@@ -136,12 +153,19 @@ it("mirrors the tokens of global.css", () => {
   expect(css).toContain(`--success: ${SUCCESS};`);
   expect(css).toContain(`--glass: rgb(${glass.join(" ")} / ${GLASS_ALPHA});`);
   expect(css).toContain(`--selected: rgb(255 255 255 / ${HIGHLIGHT_ALPHA});`);
+  expect(css).toContain(`--tint-strength: ${TINT_ALPHA * 100}%;`);
   const accent = accentTokens(DEFAULT_ACCENT);
   expect(css).toContain(`--accent: ${accent.accent};`);
   expect(css).toContain(`--accent-hover: ${accent.accentHover};`);
   expect(css).toContain(`--accent-on: ${accent.accentOn};`);
   expect(css).toContain(`--accent-text: ${accent.accentText};`);
 });
+
+/** The grey of this relative luminance. */
+function greyOf(target: number): Rgb {
+  const c = target <= 0.0031308 ? target * 12.92 : 1.055 * target ** (1 / 2.4) - 0.055;
+  return [c * 255, c * 255, c * 255];
+}
 
 function hueOf(hex: string): number {
   return toOklch(parseHex(hex)).h;

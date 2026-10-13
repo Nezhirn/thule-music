@@ -35,10 +35,34 @@
 
 .main {
   grid-area: main;
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  transition: --page-tint 0.8s;
+}
+
+/* The colours of the album or artist on the page, fading down from the top of the panel.
+   Its strength is checked against the text colours in theme.ts (TINT_ALPHA). */
+.tint {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -1;
+  height: min(480px, 70%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--page-tint) var(--tint-strength), transparent),
+    transparent
+  );
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main {
+    transition: none;
+  }
 }
 
 .content {

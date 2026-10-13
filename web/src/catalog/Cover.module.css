@@ -1,0 +1,20 @@
+.cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  background: var(--selected);
+}
+
+.none {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.disc {
+  width: 38%;
+  height: 38%;
+  opacity: 0.6;
+}

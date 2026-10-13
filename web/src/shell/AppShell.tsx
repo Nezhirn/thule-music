@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Outlet, useLocation } from "react-router";
 import { useMe } from "../account/me";
 import { useI18n } from "../i18n";
@@ -6,6 +6,7 @@ import { Backdrop } from "../theme/Backdrop";
 import styles from "./AppShell.module.css";
 import { MobileTabs } from "./MobileTabs";
 import { NowPlaying } from "./NowPlaying";
+import { PageTintContext } from "./pageTint";
 import { PlayerBar } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -18,6 +19,7 @@ export function AppShell() {
   const main = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
   const visited = useRef(pathname);
+  const [tint, setTint] = useState<string | null>(null);
 
   // A new page starts at its top, and keyboard and screen reader users land on it, as on a
   // full page load (not on the first one: focus stays where the browser puts it).
@@ -37,10 +39,16 @@ export function AppShell() {
         {t.shell.skipToContent}
       </a>
       <Sidebar admin={me.role === "admin"} />
-      <div className={`glass ${styles.main}`}>
+      <div
+        className={`glass ${styles.main}`}
+        style={{ "--page-tint": tint ?? "transparent" } as CSSProperties}
+      >
+        <div className={styles.tint} aria-hidden="true" />
         <TopBar me={me} />
         <main id="content" ref={main} tabIndex={-1} className={styles.content}>
-          <Outlet />
+          <PageTintContext value={setTint}>
+            <Outlet />
+          </PageTintContext>
         </main>
       </div>
       <NowPlaying />
