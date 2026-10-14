@@ -35,6 +35,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from app.config import AUDIO_EXTENSIONS, Settings
 from app.deps import AdminUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
+from app.jobs.queue import enqueue_many
 from app.library import files
 from app.library.importer import (
     Imported,
@@ -63,6 +64,7 @@ from app.library.tags import (
     rename_featured,
 )
 from app.library.tagwrite import TagsNotWritable, Values, can_write, write_tags
+from app.lyrics.models import Lyrics
 from app.me.models import AlbumLike, ArtistLike
 from app.schemas import AlbumOut, ApiModel, ArtistOut, GenreOut, TrackOut
 
@@ -322,6 +324,18 @@ async def _retag(
         await session.commit()
         raise
     return in_step
+
+
+async def _look_up_lyrics(session: AsyncSession, tracks: list[Track]) -> None:
+    """Lyrics looked up again for the tracks that have none found yet: their new names may
+    find some. (Lyrics found once are kept.)"""
+    found = select(Lyrics.track_id).where(Lyrics.source != "none")
+    missing = await session.scalars(
+        select(Track.id).where(Track.id.in_([t.id for t in tracks]), Track.id.not_in(found))
+    )
+    await enqueue_many(
+        session, "fetch_lyrics", [({"track_id": str(i)}, f"lyrics:{i}") for i in missing]
+    )
 
 
 def _stat(path: Path) -> tuple[int, float] | None:
@@ -832,18 +846,28 @@ async def rename_artist(
             changed["albumartist"] = new
         return changed
 
-    await _retag(session, settings, tracks, values)
+    in_step = await _retag(session, settings, tracks, values)
     other = await session.scalar(
         select(Artist).where(Artist.name_key == name_key(new), Artist.id != artist.id)
     )
     if other is None:
+        # Renamed on the spot: the tracks keep their artists and albums, only titles with
+        # "feat." change. That and the files' size and time are recorded here, without an
+        # import of each file (but a file changed on the disk since the last scan).
         artist.name, artist.name_key = new, name_key(new)
         result = artist
+        same = [t for t in tracks if t.id in in_step]
+        for track in same:
+            track.title = rename_featured(track.title, old, new)
+        await _restat(session, settings, same)
+        await _look_up_lyrics(session, same)
+        again = [t.path for t in tracks if t.id not in in_step]
     else:
         await _merge_artist(session, artist, other)
         result = other
+        again = [t.path for t in tracks]
     await session.flush()
-    await _reimport(session, settings, [t.path for t in tracks])
+    await _reimport(session, settings, again)
     await session.commit()
     await session.refresh(result)
     return (await artists_out(session, admin.id, [result]))[0]

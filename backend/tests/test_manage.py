@@ -317,6 +317,10 @@ async def test_an_artist_renamed_everywhere_or_merged(
     tags = read_tags(hit)
     assert (tags.title, tags.artists) == ("Hit (feat. New Name)", ["Main", "New Name"])
     assert (read_tags(own).artists, read_tags(own).album_artist) == (["New Name"], "New Name")
+    # In the library as the files say, without reading each of them again.
+    tracks = {t["title"]: t for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert [a["name"] for a in tracks["Hit (feat. New Name)"]["artists"]] == ["Main", "New Name"]
+    assert tracks["Own"]["album_artist"]["name"] == "New Name"
     assert unchanged(await scan(client, admin, run_jobs))
 
     # The name of another artist: merged into them, their albums of the same title too.
