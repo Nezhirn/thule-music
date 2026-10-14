@@ -42,6 +42,12 @@ class Job(UUIDPk, Base):
             "run_after",
             postgresql_where=text("status = 'queued'"),
         ),
+        Index("ix_jobs_kind_created_at", "kind", "created_at"),
+        Index(
+            "ix_jobs_running_locked_at",
+            "locked_at",
+            postgresql_where=text("status = 'running'"),
+        ),
         Index(
             "uq_jobs_dedupe_active",
             "dedupe_key",

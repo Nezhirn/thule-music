@@ -3,7 +3,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Index, String, UniqueConstraint, false
+from sqlalchemy import (
+    BigInteger,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    false,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -48,6 +57,7 @@ class Artist(UUIDPk, Base):
             postgresql_using="gin",
             postgresql_ops={"name": "gin_trgm_ops"},
         ),
+        Index("ix_artists_cover_id", "cover_id", postgresql_where=text("cover_id IS NOT NULL")),
     )
 
 
@@ -79,6 +89,7 @@ class Album(UUIDPk, Base):
             postgresql_using="gin",
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
+        Index("ix_albums_cover_id", "cover_id", postgresql_where=text("cover_id IS NOT NULL")),
     )
 
 
@@ -124,6 +135,7 @@ class Track(UUIDPk, Base):
             postgresql_using="gin",
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
+        Index("ix_tracks_cover_id", "cover_id", postgresql_where=text("cover_id IS NOT NULL")),
     )
 
 

@@ -3,10 +3,10 @@
 import uuid
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import ARRAY, Select, Uuid, any_, func, literal, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, selectinload
+from sqlalchemy.orm import InstrumentedAttribute, joinedload, selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
 
 from app.library.covers import palette_from_color
@@ -14,14 +14,20 @@ from app.library.models import Album, Artist, Cover, Track, TrackArtist
 from app.me.models import AlbumLike, ArtistLike, TrackLike
 from app.schemas import AlbumOut, AlbumRef, ArtistOut, ArtistRef, CoverPalette, TrackOut
 
+# What a track or album is shown with. A query to the database costs a round trip (tens of
+# milliseconds to a remote one), so what there is one of comes in the same query (joined);
+# only the credits, of which there are several, come in a second one.
 TRACK_LOAD: list[LoaderOption] = [
-    selectinload(Track.artist),
-    selectinload(Track.credits).selectinload(TrackArtist.artist),
-    selectinload(Track.album).selectinload(Album.cover),
-    selectinload(Track.album).selectinload(Album.artist),
-    selectinload(Track.cover),
+    joinedload(Track.artist, innerjoin=True),
+    joinedload(Track.album, innerjoin=True).joinedload(Album.artist, innerjoin=True),
+    joinedload(Track.album, innerjoin=True).joinedload(Album.cover),
+    joinedload(Track.cover),
+    selectinload(Track.credits).joinedload(TrackArtist.artist, innerjoin=True),
 ]
-ALBUM_LOAD: list[LoaderOption] = [selectinload(Album.artist), selectinload(Album.cover)]
+ALBUM_LOAD: list[LoaderOption] = [
+    joinedload(Album.artist, innerjoin=True),
+    joinedload(Album.cover),
+]
 
 TRACK_ORDER = (Track.disc_no.nulls_first(), Track.track_no.nulls_last(), Track.title)
 
@@ -47,7 +53,9 @@ async def _liked(
     if not ids:
         return set()
     rows = await session.scalars(
-        select(item_column).where(like_model.user_id == user_id, item_column.in_(ids))
+        select(item_column).where(
+            like_model.user_id == user_id, item_column == any_(literal(ids, ARRAY(Uuid)))
+        )
     )
     return set(rows)
 

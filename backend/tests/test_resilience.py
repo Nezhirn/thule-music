@@ -11,7 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from app.config import Settings
-from app.db import make_engine, make_sessionmaker
+from app.db import make_engine, make_sessionmaker, ping_when_idle
 from app.main import create_app
 from tests.conftest import png_bytes
 
@@ -146,3 +146,48 @@ async def test_images_too_large_to_decode_are_refused_and_big_ones_kept_smaller(
     small = png_bytes((1, 2, 3))
     resp = await client.put("/auth/me/avatar", files={"file": ("s.png", small)}, headers=user)
     assert resp.status_code == 200
+
+
+async def test_a_connection_dropped_while_idle_is_replaced_before_use(settings):
+    """The database restarted, or a firewall forgot the connection: noticed before use."""
+    engine = make_engine(Settings().database_url, settings.db_schema, pool_size=1)
+    ping_when_idle(engine, after=0)
+    try:
+        async with engine.connect() as connection:
+            pid = await connection.scalar(text("SELECT pg_backend_pid()"))
+        killer = make_engine(Settings().database_url, settings.db_schema, poolclass=NullPool)
+        async with killer.connect() as other:
+            await other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": pid})
+        await killer.dispose()
+        await asyncio.sleep(0.1)
+        async with engine.connect() as connection:
+            assert await connection.scalar(text("SELECT pg_backend_pid()")) != pid
+    finally:
+        await engine.dispose()
+
+
+async def test_answers_are_compressed_but_not_streams(client, admin, make_audio, run_jobs):
+    track = await one_track(client, admin, make_audio, run_jobs)
+    gzip = {**admin, "Accept-Encoding": "gzip"}
+    schema = await client.get("http://test/api/openapi.json", headers=gzip)
+    assert schema.headers.get("content-encoding") == "gzip"
+    stream = await client.get(f"/tracks/{track['id']}/stream?quality=original", headers=gzip)
+    assert stream.status_code == 200 and "content-encoding" not in stream.headers
+    ranged = await client.get(
+        f"/tracks/{track['id']}/stream?quality=original",
+        headers={**gzip, "Range": "bytes=0-99"},
+    )
+    assert ranged.status_code == 206 and len(ranged.content) == 100
+
+
+async def test_a_long_playlist_loads(client, admin, make_audio, run_jobs, sessionmaker):
+    track = await one_track(client, admin, make_audio, run_jobs)
+    playlist = (await client.post("/playlists", json={"name": "Long"}, headers=admin)).json()
+    for _ in range(5):
+        await client.post(
+            f"/playlists/{playlist['id']}/tracks",
+            json={"track_ids": [track["id"]] * 400},
+            headers=admin,
+        )
+    detail = (await client.get(f"/playlists/{playlist['id']}", headers=admin)).json()
+    assert len(detail["items"]) == 2000

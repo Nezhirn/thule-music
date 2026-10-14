@@ -14,7 +14,7 @@ class TrackLike(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     track_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -26,7 +26,7 @@ class AlbumLike(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     album_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("albums.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("albums.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -38,7 +38,7 @@ class ArtistLike(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     artist_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -47,7 +47,9 @@ class PlayEvent(UUIDPk, Base):
     __tablename__ = "play_events"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    track_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tracks.id", ondelete="CASCADE"), index=True
+    )
     played_at: Mapped[datetime] = mapped_column(default=utcnow)
     # How much was actually listened to; lets "For You" ignore skips.
     listened_ms: Mapped[int | None]

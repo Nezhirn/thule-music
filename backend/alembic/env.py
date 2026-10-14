@@ -1,6 +1,7 @@
 import asyncio
 from logging.config import fileConfig
 
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.pool import NullPool
 
@@ -47,11 +48,22 @@ async def run_async_migrations() -> None:
     schema = _schema()
     # No pool: closing the connection releases the lock, whatever happens.
     engine = make_engine(settings.database_url, schema, poolclass=NullPool)
-    async with engine.connect() as connection:
-        await connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATIONS_LOCK})")
-        await connection.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-        await connection.commit()
-        await connection.run_sync(do_run_migrations)
+    async with engine.connect() as locked:
+        # Tried again and again rather than waited for: a process waiting inside a statement
+        # would be a transaction that an index built CONCURRENTLY by the other one waits to
+        # see end, while it waits for that one's lock: a deadlock.
+        locked = await locked.execution_options(isolation_level="AUTOCOMMIT")
+        try_lock = text(f"SELECT pg_try_advisory_lock({MIGRATIONS_LOCK})")
+        while not await locked.scalar(try_lock):  # noqa: ASYNC110 - polling the database
+            await asyncio.sleep(0.5)
+        async with engine.connect() as connection:
+            # A change that waits for a table's lock behind a long transaction would make
+            # every query of that table queue behind it: it gives up instead (the start
+            # fails, and the container's restart tries again).
+            await connection.exec_driver_sql("SET lock_timeout = '10s'")
+            await connection.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            await connection.commit()
+            await connection.run_sync(do_run_migrations)
     await engine.dispose()
 
 

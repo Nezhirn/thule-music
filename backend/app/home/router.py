@@ -1,9 +1,9 @@
 import uuid
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select
+from sqlalchemy import Row, exists, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import utcnow
@@ -11,6 +11,7 @@ from app.deps import CurrentUser, SessionDep
 from app.library.models import Album, Track
 from app.library.queries import ALBUM_LOAD, albums_out
 from app.me.models import PlayEvent, TrackLike
+from app.me.router import RECENT_PLAYS
 from app.schemas import AlbumOut, ApiModel
 
 router = APIRouter(tags=["home"])
@@ -32,27 +33,34 @@ class HomeOut(ApiModel):
 
 
 async def _albums_by_ids(
-    session: AsyncSession, user_id: uuid.UUID, ids: list[uuid.UUID]
-) -> list[AlbumOut]:
+    session: AsyncSession, user_id: uuid.UUID, lists: list[list[uuid.UUID]]
+) -> list[list[AlbumOut]]:
+    """The albums of several lists of ids, in their order: one query for all of them."""
+    ids = {i for ids in lists for i in ids}
     if not ids:
-        return []
-    by_id = {
-        a.id: a
-        for a in await session.scalars(select(Album).where(Album.id.in_(ids)).options(*ALBUM_LOAD))
-    }
-    return await albums_out(session, user_id, [by_id[i] for i in ids if i in by_id])
+        return [[] for _ in lists]
+    albums = await session.scalars(select(Album).where(Album.id.in_(ids)).options(*ALBUM_LOAD))
+    by_id = {a.id: a for a in await albums_out(session, user_id, list(albums))}
+    return [[by_id[i] for i in ids if i in by_id] for ids in lists]
 
 
 async def _recently_played(
     session: AsyncSession, user_id: uuid.UUID, limit: int
 ) -> list[uuid.UUID]:
+    # Among the latest plays only (newest first along the index): the history grows for ever.
+    plays = (
+        select(PlayEvent.track_id, PlayEvent.played_at)
+        .where(PlayEvent.user_id == user_id)
+        .order_by(PlayEvent.played_at.desc())
+        .limit(RECENT_PLAYS)
+        .subquery()
+    )
     return list(
         await session.scalars(
             select(Track.album_id)
-            .join(PlayEvent, PlayEvent.track_id == Track.id)
-            .where(PlayEvent.user_id == user_id)
+            .join(plays, plays.c.track_id == Track.id)
             .group_by(Track.album_id)
-            .order_by(func.max(PlayEvent.played_at).desc())
+            .order_by(func.max(plays.c.played_at).desc())
             .limit(limit)
         )
     )
@@ -105,12 +113,13 @@ async def _for_you(session: AsyncSession, user_id: uuid.UUID, limit: int) -> lis
         )
     )
     if len(picked) < limit:
-        ever_played = (
-            select(Track.album_id)
-            .join(PlayEvent, PlayEvent.track_id == Track.id)
+        # An anti-join: NOT IN over every play ever would be read whole for each album.
+        played = (
+            exists()
+            .where(Track.album_id == Album.id, PlayEvent.track_id == Track.id)
             .where(PlayEvent.user_id == user_id)
         )
-        fill = select(Album.id).where(Album.id.not_in(ever_played))
+        fill = select(Album.id).where(~played)
         if picked:
             fill = fill.where(Album.id.not_in(picked))
         picked += list(
@@ -119,30 +128,46 @@ async def _for_you(session: AsyncSession, user_id: uuid.UUID, limit: int) -> lis
     return picked
 
 
+def _newest_first(row: Row[Any]) -> tuple[float, str]:
+    return -row.added_at.timestamp(), str(row.id)
+
+
+def _newest_release_first(row: Row[Any]) -> tuple[int, float, str]:
+    return -row.year, -row.added_at.timestamp(), str(row.id)
+
+
 @router.get("/home", response_model=HomeOut)
 async def get_home(
     session: SessionDep,
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=50)] = 12,
 ) -> HomeOut:
-    added_ids = list(
-        await session.scalars(
-            select(Album.id).order_by(Album.added_at.desc(), Album.id).limit(limit)
+    columns = (Album.id, Album.added_at, Album.year)
+    newest = select(*columns).order_by(Album.added_at.desc(), Album.id).limit(limit).subquery()
+    released = (
+        select(*columns)
+        .where(Album.year.is_not(None))
+        .order_by(Album.year.desc(), Album.added_at.desc(), Album.id)
+        .limit(limit)
+        .subquery()
+    )
+    # Both shelves in one query (each query is a round trip to the database), put back in
+    # their order here: a union doesn't keep it.
+    rows = (
+        await session.execute(
+            union_all(
+                select(literal("added").label("shelf"), *newest.c),
+                select(literal("released").label("shelf"), *released.c),
+            )
         )
+    ).all()
+    added_ids = [r.id for r in sorted((r for r in rows if r.shelf == "added"), key=_newest_first)]
+    released_ids = [
+        r.id for r in sorted((r for r in rows if r.shelf == "released"), key=_newest_release_first)
+    ]
+    played_ids = await _recently_played(session, user.id, limit)
+    for_you_ids = await _for_you(session, user.id, limit)
+    added, new, played, for_you = await _albums_by_ids(
+        session, user.id, [added_ids, released_ids, played_ids, for_you_ids]
     )
-    released_ids = list(
-        await session.scalars(
-            select(Album.id)
-            .where(Album.year.is_not(None))
-            .order_by(Album.year.desc(), Album.added_at.desc(), Album.id)
-            .limit(limit)
-        )
-    )
-    return HomeOut(
-        recently_added=await _albums_by_ids(session, user.id, added_ids),
-        new_releases=await _albums_by_ids(session, user.id, released_ids),
-        recently_played=await _albums_by_ids(
-            session, user.id, await _recently_played(session, user.id, limit)
-        ),
-        for_you=await _albums_by_ids(session, user.id, await _for_you(session, user.id, limit)),
-    )
+    return HomeOut(recently_added=added, new_releases=new, recently_played=played, for_you=for_you)

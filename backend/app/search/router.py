@@ -2,7 +2,7 @@ import enum
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select, union
 
 from app.deps import CurrentUser, SessionDep
 from app.library.models import Album, Artist, Track
@@ -18,9 +18,6 @@ from app.schemas import AlbumOut, ApiModel, ArtistOut, TrackOut
 
 router = APIRouter(tags=["search"])
 
-# pg_trgm word_similarity threshold for typo-tolerant matches ("katatonya" -> "Katatonia").
-FUZZY_THRESHOLD = 0.4
-
 
 class SearchType(enum.StrEnum):
     artists = "artists"
@@ -35,11 +32,13 @@ class SearchOut(ApiModel):
 
 
 def _match(column, q: str):
-    """Substring match or fuzzy trigram match, and how close the match is."""
-    similarity = func.word_similarity(q, column)
+    """Substring match or fuzzy trigram match, and how close the match is. Both conditions
+    are operators the trigram index answers (`q <% column` is word_similarity at least
+    FUZZY_THRESHOLD, set for each connection: see app.db), so a search reads the index, not
+    the whole table."""
     return (
-        or_(column.ilike(contains(q), escape="\\"), similarity >= FUZZY_THRESHOLD),
-        similarity,
+        or_(column.ilike(contains(q), escape="\\"), literal(q).op("<%")(column)),
+        func.word_similarity(q, column),
     )
 
 
@@ -75,11 +74,16 @@ async def search(
     if only in (None, SearchType.albums):
         title_where, title_similarity = _match(Album.title, q)
         artist_where, artist_similarity = _match(Artist.name, q)
+        # By title, or by artist: each found along its own index.
+        found = union(
+            select(Album.id).where(title_where),
+            select(Album.id).where(Album.artist_id.in_(select(Artist.id).where(artist_where))),
+        ).subquery()
         albums = list(
             await session.scalars(
                 select(Album)
                 .join(Artist, Artist.id == Album.artist_id)
-                .where(or_(title_where, artist_where))
+                .where(Album.id.in_(select(found.c.id)))
                 .options(*ALBUM_LOAD)
                 .order_by(
                     func.greatest(title_similarity, artist_similarity).desc(),
@@ -94,11 +98,15 @@ async def search(
     if only in (None, SearchType.tracks):
         title_where, title_similarity = _match(Track.title, q)
         artist_where, artist_similarity = _match(Artist.name, q)
+        found = union(
+            select(Track.id).where(title_where),
+            select(Track.id).where(Track.artist_id.in_(select(Artist.id).where(artist_where))),
+        ).subquery()
         tracks = list(
             await session.scalars(
                 track_select()
                 .join(Artist, Artist.id == Track.artist_id)
-                .where(or_(title_where, artist_where))
+                .where(Track.id.in_(select(found.c.id)))
                 .order_by(
                     func.greatest(title_similarity, artist_similarity).desc(),
                     Track.title,

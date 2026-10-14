@@ -3,7 +3,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, status
 from pydantic import Field
-from sqlalchemy import ARRAY, Uuid, func, literal, select, update
+from sqlalchemy import ARRAY, Uuid, any_, func, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -137,7 +137,10 @@ async def _detail(session: AsyncSession, user: User, playlist: Playlist) -> Play
     tracks = {
         t.id: t
         for t in await session.scalars(
-            select(Track).where(Track.id.in_({i.track_id for i in items})).options(*TRACK_LOAD)
+            # One array parameter: a long playlist would be more parameters than allowed.
+            select(Track)
+            .where(Track.id == any_(literal(list({i.track_id for i in items}), ARRAY(Uuid))))
+            .options(*TRACK_LOAD)
         )
     }
     liked = await liked_ids(session, user.id, tracks)

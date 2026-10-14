@@ -28,6 +28,10 @@ from app.schemas import AlbumOut, ApiModel, ArtistOut, Page, TrackOut
 router = APIRouter(prefix="/me", tags=["me"])
 
 
+# "Recently played" looks among this many latest plays.
+RECENT_PLAYS = 2000
+
+
 class PlayIn(ApiModel):
     track_id: uuid.UUID
     # When the track was played (a play sent later, after being offline). Without a time zone
@@ -227,11 +231,19 @@ async def list_recent_tracks(
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> list[RecentTrack]:
     """Recently played tracks, each listed once (latest play)."""
-    latest = (
-        select(PlayEvent.track_id, func.max(PlayEvent.played_at).label("played_at"))
+    # Among the latest plays only, read newest first along the index: the whole history
+    # grows for ever.
+    plays = (
+        select(PlayEvent.track_id, PlayEvent.played_at)
         .where(PlayEvent.user_id == user.id)
-        .group_by(PlayEvent.track_id)
-        .order_by(func.max(PlayEvent.played_at).desc())
+        .order_by(PlayEvent.played_at.desc())
+        .limit(RECENT_PLAYS)
+        .subquery()
+    )
+    latest = (
+        select(plays.c.track_id, func.max(plays.c.played_at).label("played_at"))
+        .group_by(plays.c.track_id)
+        .order_by(func.max(plays.c.played_at).desc())
         .limit(limit)
         .subquery()
     )

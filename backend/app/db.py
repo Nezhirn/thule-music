@@ -1,8 +1,10 @@
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import DateTime, MetaData, event
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -33,6 +35,9 @@ class UUIDPk:
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
 
+# pg_trgm word_similarity threshold for typo-tolerant matches ("katatonya" -> "Katatonia").
+FUZZY_THRESHOLD = 0.4
+
 # Connecting to a database that doesn't answer gives up after this long.
 CONNECT_TIMEOUT_SECONDS = 10
 
@@ -50,7 +55,11 @@ def make_engine(
     nothing waits for ever. Without it (migrations, the worker's long jobs) only connecting
     is limited."""
     search_path = schema if schema == "public" else f"{schema},public"
-    server_settings = {"search_path": search_path}
+    server_settings = {
+        "search_path": search_path,
+        # Search's fuzzy matches (`q <% name`, see app.search.router).
+        "pg_trgm.word_similarity_threshold": str(FUZZY_THRESHOLD),
+    }
     connect_args: dict[str, Any] = {
         "server_settings": server_settings,
         "timeout": CONNECT_TIMEOUT_SECONDS,
@@ -60,6 +69,27 @@ def make_engine(
         server_settings |= {"statement_timeout": ms, "idle_in_transaction_session_timeout": ms}
         connect_args["command_timeout"] = statement_timeout + 5
     return create_async_engine(url, connect_args=connect_args, **kwargs)
+
+
+def ping_when_idle(engine: AsyncEngine, after: float = 10) -> None:
+    """Before use, a pooled connection that sat idle longer than `after` seconds is checked
+    (the database restarted, a firewall forgot it): a dead one is replaced. Unlike
+    pool_pre_ping, one used a moment ago isn't: the check is a round trip to the database,
+    and a page asks a few things at once."""
+    sync = engine.sync_engine
+
+    @event.listens_for(sync, "checkin")
+    def checkin(dbapi_connection: Any, record: Any) -> None:
+        record.info["idle_since"] = time.monotonic()
+
+    @event.listens_for(sync, "checkout")
+    def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
+        since = record.info.get("idle_since")
+        if since is not None and time.monotonic() - since > after:
+            try:
+                sync.dialect.do_ping(dbapi_connection)
+            except Exception as exc:
+                raise DisconnectionError("Idle connection is dead") from exc
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

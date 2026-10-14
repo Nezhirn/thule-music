@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,29 +93,33 @@ async def requeue(session: AsyncSession, jobs: list[Job]) -> None:
 
 
 async def claim(session: AsyncSession) -> Job | None:
-    """Atomically takes the next runnable job and marks it running. Commits."""
+    """Atomically takes the next runnable job and marks it running: one whose worker died
+    first, else the queued one due longest. Commits. Two queries, each along its own
+    partial index (one OR-ed query would read the whole table on every poll)."""
     now = utcnow()
-    candidate = (
-        select(Job.id)
-        .where(
-            or_(
-                (Job.status == JobStatus.queued) & (Job.run_after <= now),
-                (Job.status == JobStatus.running) & (Job.locked_at < now - STALE_AFTER),
-            )
+    for runnable, order in (
+        ((Job.status == JobStatus.running) & (Job.locked_at < now - STALE_AFTER), Job.locked_at),
+        ((Job.status == JobStatus.queued) & (Job.run_after <= now), Job.run_after),
+    ):
+        candidate = (
+            select(Job.id)
+            .where(runnable)
+            .order_by(order)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+            .scalar_subquery()
         )
-        .order_by(Job.run_after)
-        .limit(1)
-        .with_for_update(skip_locked=True)
-        .scalar_subquery()
-    )
-    job = await session.scalar(
-        update(Job)
-        .where(Job.id == candidate)
-        .values(status=JobStatus.running, locked_at=now, attempts=Job.attempts + 1)
-        .returning(Job)
-    )
+        job = await session.scalar(
+            update(Job)
+            .where(Job.id == candidate)
+            .values(status=JobStatus.running, locked_at=now, attempts=Job.attempts + 1)
+            .returning(Job)
+        )
+        if job is not None:
+            await session.commit()
+            return job
     await session.commit()
-    return job
+    return None
 
 
 def _ours(job: Job) -> Any:

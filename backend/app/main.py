@@ -5,12 +5,13 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.auth.router import router as auth_router
 from app.auth.router import users_router
 from app.config import Settings, get_settings
-from app.db import make_engine, make_sessionmaker
+from app.db import make_engine, make_sessionmaker, ping_when_idle
 from app.deps import SessionDep
 from app.errors import ERROR_RESPONSES, install_error_handlers
 from app.home.router import router as home_router
@@ -27,6 +28,26 @@ from app.web import WebApp
 
 API_ROOT = "/api"
 API_PREFIX = f"{API_ROOT}/v1"
+
+
+class ApiGZip:
+    """Compresses the API's answers (JSON: a playlist of thousands of tracks is megabytes),
+    but not streams (audio, with Range) nor cover images (compressed already). The web
+    app's files come compressed beforehand (see web.py)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=1024)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        compress = (
+            scope["type"] == "http"
+            and path.startswith(f"{API_ROOT}/")
+            and not path.endswith("/stream")
+            and "/covers/" not in path
+        )
+        await (self.gzip if compress else self.app)(scope, receive, send)
 
 
 class RequestClock:
@@ -54,11 +75,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             pool_size=settings.db_pool_size,
             max_overflow=settings.db_max_overflow,
             pool_timeout=settings.db_pool_timeout_seconds,
-            # A connection the network or the database dropped meanwhile is noticed before
-            # use; none is kept so long that a firewall forgot it.
-            pool_pre_ping=True,
+            # None is kept so long that a firewall forgot it.
             pool_recycle=1800,
         )
+        # A connection the network or the database dropped meanwhile is noticed before use.
+        ping_when_idle(engine)
         app.state.engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         yield
@@ -77,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     install_error_handlers(app)
+    app.add_middleware(ApiGZip)
     app.add_middleware(RequestClock)
     app.add_middleware(
         CORSMiddleware,

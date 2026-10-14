@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
@@ -49,6 +50,24 @@ class StreamUrl(ApiModel):
     expires_at: datetime
 
 
+async def _track_and_variant(
+    session: AsyncSession, track_id: uuid.UUID, quality: Quality
+) -> tuple[Track, TrackFile | None]:
+    """The track and its transcode of that quality (None for the original, or not made yet):
+    one query, each is a round trip to the database."""
+    variant = None if quality == Quality.original else Variant(quality.value)
+    row = (
+        await session.execute(
+            select(Track, TrackFile)
+            .outerjoin(TrackFile, (TrackFile.track_id == Track.id) & (TrackFile.variant == variant))
+            .where(Track.id == track_id)
+        )
+    ).first()
+    if row is None:
+        raise ApiError(ErrorCode.track_not_found)
+    return row[0], row[1]
+
+
 @router.get("/tracks/{track_id}/stream-url", response_model=StreamUrl)
 async def get_stream_url(
     track_id: uuid.UUID,
@@ -65,15 +84,8 @@ async def get_stream_url(
     The URL is pinned to a rendition that exists right now: if the requested transcode is
     not ready yet, it points at the original. Otherwise a transcode finishing mid-playback
     would make later Range requests read a different file."""
-    track = await session.get(Track, track_id)
-    if track is None:
-        raise ApiError(ErrorCode.track_not_found)
+    track, variant = await _track_and_variant(session, track_id, quality)
     if quality != Quality.original:
-        variant = await session.scalar(
-            select(TrackFile).where(
-                TrackFile.track_id == track_id, TrackFile.variant == Variant(quality.value)
-            )
-        )
         if variant is None:
             quality = Quality.original
         elif not await asyncio.to_thread((settings.transcodes_path / variant.path).is_file):
@@ -118,27 +130,18 @@ async def stream_track(
     ):
         raise ApiError(ErrorCode.invalid_stream_signature)
 
-    track = await session.get(Track, track_id)
-    if track is None:
-        raise ApiError(ErrorCode.track_not_found)
-
-    if quality != Quality.original:
-        variant = await session.scalar(
-            select(TrackFile).where(
-                TrackFile.track_id == track_id, TrackFile.variant == Variant(quality.value)
+    track, variant = await _track_and_variant(session, track_id, quality)
+    if quality != Quality.original and variant is not None:
+        path = settings.transcodes_path / variant.path
+        if await asyncio.to_thread(path.is_file):
+            return FileResponse(
+                path,
+                media_type=variant.mime,
+                headers={
+                    "Cache-Control": "private, max-age=86400",
+                    "X-Thule-Quality": quality.value,
+                },
             )
-        )
-        if variant is not None:
-            path = settings.transcodes_path / variant.path
-            if await asyncio.to_thread(path.is_file):
-                return FileResponse(
-                    path,
-                    media_type=variant.mime,
-                    headers={
-                        "Cache-Control": "private, max-age=86400",
-                        "X-Thule-Quality": quality.value,
-                    },
-                )
 
     path = resolve_in_library(settings.library_path, track.path)
     if not await asyncio.to_thread(path.is_file):

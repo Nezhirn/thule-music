@@ -27,6 +27,8 @@ class PlaylistItem(UUIDPk, Base):
     playlist_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("playlists.id", ondelete="CASCADE"), index=True
     )
-    track_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tracks.id", ondelete="CASCADE"), index=True
+    )
     position: Mapped[int]
     added_at: Mapped[datetime] = mapped_column(default=utcnow)

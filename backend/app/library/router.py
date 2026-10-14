@@ -74,29 +74,28 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
     if artist is None:
         raise ApiError(ErrorCode.artist_not_found)
     newest_first = (Album.year.desc().nulls_last(), Album.title_key)
-    albums = (
-        await session.scalars(
-            select(Album)
-            .where(Album.artist_id == artist_id)
-            .options(*ALBUM_LOAD)
-            .order_by(*newest_first)
-        )
-    ).all()
     credited = select(TrackArtist.track_id).where(TrackArtist.artist_id == artist_id)
-    appears_on = (
+    # Their albums and the albums they appear on, in one query.
+    every = (
         await session.scalars(
             select(Album)
             .where(
-                Album.artist_id != artist_id,
-                Album.id.in_(select(Track.album_id).where(Track.id.in_(credited))),
+                (Album.artist_id == artist_id)
+                | Album.id.in_(select(Track.album_id).where(Track.id.in_(credited)))
             )
             .options(*ALBUM_LOAD)
             .order_by(*newest_first)
         )
     ).all()
+    albums = [a for a in every if a.artist_id == artist_id]
+    appears_on = [a for a in every if a.artist_id != artist_id]
 
+    # Plays of their tracks only (by the index on the track): not of the whole history.
     plays = (
-        select(PlayEvent.track_id, func.count().label("n")).group_by(PlayEvent.track_id).subquery()
+        select(PlayEvent.track_id, func.count().label("n"))
+        .where(PlayEvent.track_id.in_(credited))
+        .group_by(PlayEvent.track_id)
+        .subquery()
     )
     top = (
         await session.scalars(
@@ -109,11 +108,12 @@ async def get_artist(artist_id: uuid.UUID, session: SessionDep, user: CurrentUse
     ).all()
 
     (base,) = await artists_out(session, user.id, [artist])
+    shown = {a.id: a for a in await albums_out(session, user.id, every)}
     return ArtistDetail(
         **base.model_dump(),
         cover_custom=artist.cover_id is not None,
-        albums=await albums_out(session, user.id, albums),
-        appears_on=await albums_out(session, user.id, appears_on),
+        albums=[shown[a.id] for a in albums],
+        appears_on=[shown[a.id] for a in appears_on],
         top_tracks=await tracks_out(session, user.id, top),
     )
 

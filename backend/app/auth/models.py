@@ -36,6 +36,10 @@ class User(UUIDPk, Base):
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
 
+    __table_args__ = (
+        Index("ix_users_avatar_id", "avatar_id", postgresql_where=text("avatar_id IS NOT NULL")),
+    )
+
 
 class RefreshToken(UUIDPk, Base):
     __tablename__ = "refresh_tokens"
