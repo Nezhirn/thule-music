@@ -4,7 +4,15 @@ import { useI18n } from "../i18n";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { EmptyState } from "../ui/EmptyState";
 import { LoadError } from "./LoadError";
+import type { Loaded } from "./loaded";
 import styles from "./PageStatus.module.css";
+
+/** Over what was shown, when loading it again failed; a long list's next page says so at
+ * its end instead (`LoadMore`). */
+export function RefreshFailed({ query }: { query: Loaded & { refetch(): unknown } }) {
+  if (!query.isError || query.isFetchNextPageError) return null;
+  return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
+}
 
 /** A page while its data loads. */
 export function PageLoading() {

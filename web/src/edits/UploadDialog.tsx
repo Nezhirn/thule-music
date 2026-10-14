@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, Copy, FileAudio, Upload } from "lucide-react";
+import { CheckCircle2, CircleAlert, Copy, FileAudio, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useStore } from "zustand";
 import type { Schemas } from "../api/client";
@@ -7,6 +7,7 @@ import type { Album } from "../catalog/queries";
 import { useI18n } from "../i18n";
 import { Button } from "../ui/Button";
 import { Dialog, DialogButtons } from "../ui/Dialog";
+import { IconButton } from "../ui/IconButton";
 import { TextField } from "../ui/TextField";
 import { ACCEPT, placeOf, type AlbumUploadItem, type UploadTarget } from "./albumUploads";
 import { useEdits } from "./context";
@@ -205,6 +206,7 @@ function Uploads({
 
 function UploadRow({ item }: { item: AlbumUploadItem }) {
   const { t } = useI18n();
+  const { uploads } = useEdits()!;
   const text = t.edits.upload;
   const { state } = item;
   let icon = <FileAudio aria-hidden="true" className={styles.uploadIcon} />;
@@ -239,6 +241,14 @@ function UploadRow({ item }: { item: AlbumUploadItem }) {
           value={state.progress}
           max={1}
           aria-label={item.file.name}
+        />
+      )}
+      {(state.stage === "waiting" || state.stage === "sending") && (
+        <IconButton
+          icon={X}
+          size="sm"
+          label={t.admin.uploads.cancel(item.file.name)}
+          onClick={() => uploads.cancel(item.id)}
         />
       )}
     </li>

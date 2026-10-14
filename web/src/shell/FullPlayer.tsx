@@ -49,7 +49,7 @@ export function FullPlayer({ open, onClose }: { open: boolean; onClose(): void }
       style={palette ? ({ "--player-tint": coverTint(palette) } as CSSProperties) : undefined}
       onClose={onClose}
     >
-      {track && (
+      {shown && (
         <div className={styles.body}>
           <div className={styles.top}>
             <IconButton icon={ChevronDown} label={t.player.closePlayer} onClick={onClose} />

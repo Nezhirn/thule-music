@@ -37,6 +37,15 @@ export async function unwrap<T>(
   return data as T;
 }
 
+// Answers that say "not now" rather than "no": the server restarting behind its proxy,
+// overloaded, or asking to slow down.
+const TRANSIENT = new Set([408, 429, 502, 503, 504]);
+
+/** Whether asking again later may succeed: no answer at all (offline), or a "not now". */
+export function isTransient(error: unknown): boolean {
+  return !(error instanceof ApiFailure) || TRANSIENT.has(error.status);
+}
+
 /** What to tell the user about a failed call. */
 export function errorMessage(t: Messages, error: unknown): string {
   if (!(error instanceof ApiFailure)) return t.common.unreachable;

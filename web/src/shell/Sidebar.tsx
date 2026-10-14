@@ -9,6 +9,7 @@ import { IconButton } from "../ui/IconButton";
 import { Logo } from "../ui/Logo";
 import { LIBRARY_SECTIONS, SECTIONS, sectionName, type SectionId } from "./sections";
 import styles from "./Sidebar.module.css";
+import { failedToLoad } from "../catalog/loaded";
 
 export function Sidebar({ admin }: { admin: boolean }) {
   const { t } = useI18n();
@@ -94,7 +95,7 @@ function Playlists() {
   const { t } = useI18n();
   const playlists = useQuery(playlistsQuery);
   if (playlists.isPending) return null;
-  if (playlists.isError) return <li className={styles.note}>{t.nav.playlistsFailed}</li>;
+  if (failedToLoad(playlists)) return <li className={styles.note}>{t.nav.playlistsFailed}</li>;
   if (playlists.data.length === 0) return <li className={styles.note}>{t.nav.noPlaylists}</li>;
   return playlists.data.map((playlist) => (
     <li key={playlist.id}>

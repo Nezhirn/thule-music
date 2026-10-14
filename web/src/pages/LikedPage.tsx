@@ -56,7 +56,9 @@ export function LikedPage() {
         {total !== undefined && <span>{t.catalog.tracks(total)}</span>}
       </DetailHeader>
       {liked.isPending && <PageLoading />}
-      {liked.isError && <LoadError error={liked.error} onRetry={() => void liked.refetch()} />}
+      {liked.isError && !liked.isFetchNextPageError && (
+        <LoadError error={liked.error} onRetry={() => void liked.refetch()} />
+      )}
       {total === 0 && (
         <EmptyState icon={Heart} title={t.likes.noLiked}>
           {t.likes.noLikedText}

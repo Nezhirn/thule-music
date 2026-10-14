@@ -20,6 +20,8 @@ export const ACCEPT = [...AUDIO, ...COVER_SUFFIXES, ...LYRICS_SUFFIXES].join(","
 const CONCURRENCY = 2;
 const STATUS_POLL_MS = 1500;
 const STATUS_BATCH = 100;
+// Imports waiting this long (ms) without one of them done: the worker may not be running.
+const IMPORTS_STUCK_AFTER = 30_000;
 
 export type UploadState =
   | { stage: "waiting" }
@@ -52,6 +54,8 @@ export interface UploadsState {
   skipped: number;
   /** How the uploads went, set each time the queue runs out (a new object every time). */
   finished: { added: number; failed: number } | null;
+  /** Files saved wait to be added, and none was for a while. */
+  importsStuck: boolean;
 }
 
 /** A file picked or dropped, with its folder inside what was picked or dropped. */
@@ -70,6 +74,7 @@ export interface UploadsDeps {
   status(paths: string[]): Promise<ImportStatus[]>;
   /** Files were added to the library (or failed to be), and nothing is left to do. */
   finished(): void;
+  now?(): number;
 }
 
 export type Uploads = ReturnType<typeof createUploads>;
@@ -121,7 +126,11 @@ export function createUploads(deps: UploadsDeps) {
     items: [],
     skipped: 0,
     finished: null,
+    importsStuck: false,
   }));
+  const now = deps.now ?? Date.now;
+  // Since when the imports waited on have been waiting without one being done.
+  let quietSince: number | null = null;
   let nextId = 1;
   const running = new Map<number, AbortController>();
   let poll: ReturnType<typeof setTimeout> | null = null;
@@ -199,9 +208,15 @@ export function createUploads(deps: UploadsDeps) {
             item.state.stage === "importing" ||
             (item.state.stage === "duplicate" && item.state.track === undefined),
         );
-    if (!waiting().length) return;
+    if (!waiting().length) {
+      quietSince = null;
+      if (store.getState().importsStuck) store.setState({ importsStuck: false });
+      return;
+    }
+    quietSince ??= now();
     poll = setTimeout(async () => {
       const items = waiting();
+      let done = false;
       try {
         for (let i = 0; i < items.length; i += STATUS_BATCH) {
           const batch = items.slice(i, i + STATUS_BATCH);
@@ -211,35 +226,39 @@ export function createUploads(deps: UploadsDeps) {
             const current = get(item.id);
             if (!current) continue;
             const known = statuses.get((current.state as { path: string }).path);
-            if (known) resolve(current, known);
+            if (known && resolve(current, known)) done = true;
           }
         }
       } catch {
         // Offline for a moment: ask again next time.
       }
       poll = null;
+      if (done) quietSince = now();
+      const stuck = quietSince !== null && now() - quietSince >= IMPORTS_STUCK_AFTER;
+      if (stuck !== store.getState().importsStuck) store.setState({ importsStuck: stuck });
       watch();
       finishIfIdle();
     }, STATUS_POLL_MS);
   }
 
-  function resolve(item: Upload, status: ImportStatus) {
+  /** Whether the import is done with. */
+  function resolve(item: Upload, status: ImportStatus): boolean {
     const { state } = item;
     if (state.stage === "duplicate") {
       update(item.id, { ...state, track: status.track });
-      return;
+      return true;
     }
-    if (state.stage !== "importing") return;
+    if (state.stage !== "importing") return false;
     let next: UploadState | null = null;
     if (status.state === "imported" && status.track) {
       next = { stage: "added", path: state.path, track: status.track };
     } else if (status.state === "failed" || status.state === "missing") {
       next = { stage: "failed", path: state.path, error: status.error };
     }
-    if (next) {
-      settle(next);
-      update(item.id, next);
-    }
+    if (!next) return false;
+    settle(next);
+    update(item.id, next);
+    return true;
   }
 
   function finishIfIdle() {
@@ -276,6 +295,26 @@ export function createUploads(deps: UploadsDeps) {
       update(id, { stage: "waiting" });
       pump();
     },
+    /** Takes files out before they are sent, or stops sending them: those waiting or being
+     * sent among `ids` (all of them if left out). One already sent is added regardless. */
+    cancel(ids?: number[]) {
+      const chosen = ids && new Set(ids);
+      const cancelled = (item: Upload) =>
+        (!chosen || chosen.has(item.id)) &&
+        (item.state.stage === "waiting" || item.state.stage === "uploading");
+      const gone = new Set(
+        store
+          .getState()
+          .items.filter(cancelled)
+          .map((item) => item.id),
+      );
+      for (const id of gone) {
+        running.get(id)?.abort();
+        running.delete(id);
+      }
+      store.setState(({ items }) => ({ items: items.filter((item) => !gone.has(item.id)) }));
+      pump();
+    },
     /** Forgets the files that are done with (added, failed, ...), keeps the rest. */
     clear() {
       store.setState(({ items }) => ({ items: items.filter(inProgress), skipped: 0 }));
@@ -288,7 +327,8 @@ export function createUploads(deps: UploadsDeps) {
       poll = null;
       added = 0;
       failed = 0;
-      store.setState({ items: [], skipped: 0, finished: null });
+      quietSince = null;
+      store.setState({ items: [], skipped: 0, finished: null, importsStuck: false });
     },
   };
 }

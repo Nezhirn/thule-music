@@ -12,6 +12,7 @@ import { PlaylistCover } from "./PlaylistCover";
 import { PlaylistForm } from "./PlaylistDialog";
 import { changePlaylist, playlistsQuery, type PlaylistDetail } from "./queries";
 import styles from "./playlists.module.css";
+import { failedToLoad } from "../catalog/loaded";
 
 /** The one "Add to playlist" dialog, for the menus of the pages inside. */
 export function AddToPlaylistProvider({ children }: { children: ReactNode }) {
@@ -88,7 +89,7 @@ function Choices({
         {t.playlists.new}
       </Button>
       {playlists.isPending && <p className={styles.note}>{t.common.loading}</p>}
-      {playlists.isError && <p className={styles.note}>{t.nav.playlistsFailed}</p>}
+      {failedToLoad(playlists) && <p className={styles.note}>{t.nav.playlistsFailed}</p>}
       {playlists.data && playlists.data.length > 0 && (
         <ul className={styles.choices} aria-label={t.nav.playlists}>
           {playlists.data.map((playlist) => (

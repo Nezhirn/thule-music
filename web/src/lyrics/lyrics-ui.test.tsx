@@ -4,6 +4,7 @@ import type { Schemas } from "../api/client";
 import { mockAccount, renderSignedIn } from "../test/account";
 import { apiError, url } from "../test/api";
 import { WIND, album, albumDetail, track } from "../test/catalog";
+import { asPhone } from "../test/media";
 import { server } from "../test/server";
 
 const QUIET = album("Тихие города", WIND);
@@ -91,6 +92,7 @@ test("the player's button opens the playing track's lyrics, which follow the nex
 });
 
 test("the phone's player shows the lyrics in place of the cover", async () => {
+  asPhone();
   const { user, audio } = setup();
   await user.click(await screen.findByRole("button", { name: "Play Тихие города" }));
   await waitFor(() => expect(audio.src).toContain(DAWN.id));

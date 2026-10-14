@@ -44,6 +44,8 @@ export interface AlbumUploadsState {
 export interface AlbumUploads {
   store: StoreApi<AlbumUploadsState>;
   add(target: UploadTarget, files: File[]): void;
+  /** Takes a file out before it is sent, or stops sending it. */
+  cancel(id: number): void;
   /** Forgets the finished uploads shown in a place (see placeOf). */
   clear(place: string): void;
   /** Stops and forgets everything (signing out). */
@@ -64,6 +66,8 @@ export function createAlbumUploads(deps: AlbumUploadDeps): AlbumUploads {
   let next = 1;
   let running = false;
   let controller = new AbortController();
+  // The file being sent, to stop it.
+  let sending: { id: number; stop: AbortController } | null = null;
   // Since the queue last ran out.
   let added = 0;
 
@@ -80,18 +84,26 @@ export function createAlbumUploads(deps: AlbumUploadDeps): AlbumUploads {
       const item = store.getState().items.find((one) => one.state.stage === "waiting");
       if (!item || signal.aborted) break;
       set(item.id, { stage: "sending", progress: 0 });
+      const stop = new AbortController();
+      const stopAll = () => stop.abort();
+      signal.addEventListener("abort", stopAll);
+      sending = { id: item.id, stop };
       try {
         const result = await deps.send(
           item.target,
           item.file,
           (progress) => set(item.id, { stage: "sending", progress }),
-          signal,
+          stop.signal,
         );
         set(item.id, { stage: result.duplicate ? "duplicate" : "added", track: result.track });
         if (!result.duplicate) added++;
       } catch (error) {
         if (signal.aborted) break;
-        set(item.id, { stage: "failed", error });
+        // Cancelled: already off the list.
+        if (!stop.signal.aborted) set(item.id, { stage: "failed", error });
+      } finally {
+        signal.removeEventListener("abort", stopAll);
+        sending = null;
       }
     }
     running = false;
@@ -111,6 +123,15 @@ export function createAlbumUploads(deps: AlbumUploadDeps): AlbumUploads {
       }));
       store.setState((state) => ({ items: [...state.items, ...items] }));
       void run();
+    },
+    cancel(id) {
+      if (sending?.id === id) sending.stop.abort();
+      store.setState(({ items }) => ({
+        items: items.filter(
+          (item) =>
+            item.id !== id || (item.state.stage !== "waiting" && item.state.stage !== "sending"),
+        ),
+      }));
     },
     clear(place) {
       store.setState(({ items }) => ({

@@ -56,6 +56,10 @@ export const ru: Messages = {
     tabs: "Разделы",
     account: (name: string) => `Аккаунт: ${name}`,
     settings: "Настройки",
+    pageCrashed: "На этой странице что-то пошло не так.",
+    appCrashed: "Что-то пошло не так.",
+    reload: "Перезагрузить",
+    resetAndReload: "Забыть сохранённую очередь и перезагрузить",
   },
   nav: {
     home: "Главная",
@@ -658,6 +662,10 @@ export const ru: Messages = {
         error: "Не загружен",
       },
       retry: (name: string) => `Загрузить ${name} ещё раз`,
+      cancel: (name: string) => `Отменить ${name}`,
+      cancelRest: "Отменить остальные",
+      stuck:
+        "Файлы сохранены, но давно не добавляются в библиотеку. Проверьте, что на сервере запущен процесс worker.",
       unreadable: "Файл не читается: возможно, его переместили или удалили.",
       clear: "Очистить список",
       finished: (added: number, failed: number) => {

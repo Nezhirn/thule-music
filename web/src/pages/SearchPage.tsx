@@ -15,7 +15,8 @@ import { ArtistCard } from "../catalog/ArtistCard";
 import { GenreLinks } from "../catalog/GenreLinks";
 import { LoadError } from "../catalog/LoadError";
 import { LoadMore } from "../catalog/LoadMore";
-import { PageLoading } from "../catalog/PageStatus";
+import { PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { genresQuery, pick } from "../catalog/queries";
 import { Shelf } from "../catalog/Shelf";
 import { TrackTable } from "../catalog/TrackTable";
@@ -208,7 +209,7 @@ function Everything({
 }) {
   const { t } = useI18n();
   if (results.isPending) return <PageLoading />;
-  if (results.isError) {
+  if (failedToLoad(results)) {
     return <LoadError error={results.error} onRetry={() => void results.refetch()} />;
   }
   const { artists, albums, tracks } = results.data;
@@ -300,7 +301,8 @@ function OfKind({
 }) {
   const { t } = useI18n();
   if (pages.isPending) return <PageLoading />;
-  if (pages.isError) return <LoadError error={pages.error} onRetry={() => void pages.refetch()} />;
+  if (failedToLoad(pages))
+    return <LoadError error={pages.error} onRetry={() => void pages.refetch()} />;
   const all = pages.data.pages;
   const busy = pages.isPlaceholderData || undefined;
   let list;
@@ -346,6 +348,7 @@ function OfKind({
   }
   return (
     <div className={styles.results} aria-busy={busy}>
+      <RefreshFailed query={pages} />
       {list}
       <LoadMore query={pages} />
     </div>

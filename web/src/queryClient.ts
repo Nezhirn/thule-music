@@ -1,12 +1,26 @@
 import { QueryClient, type InfiniteData, type QueryKey } from "@tanstack/react-query";
-import { ApiFailure } from "./api/errors";
+import { ApiFailure, isTransient } from "./api/errors";
+
+// Tries of a query after the first; between them, a second, two, four (or what the server
+// asks for with Retry-After, up to half a minute).
+const RETRIES = 3;
+const MAX_RETRY_DELAY = 30_000;
+
+export function retryDelay(failures: number, error: unknown): number {
+  if (error instanceof ApiFailure && error.retryAfter) {
+    return Math.min(error.retryAfter * 1000, MAX_RETRY_DELAY);
+  }
+  return Math.min(1000 * 2 ** failures, MAX_RETRY_DELAY);
+}
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // Retry network failures only: an error response won't change by asking again.
-        retry: (failures, error) => !(error instanceof ApiFailure) && failures < 2,
+        // No answer, or a "not now" (502 while the server restarts, 503, 429): asked again a
+        // few times. Any other error response won't change by asking again.
+        retry: (failures, error) => isTransient(error) && failures < RETRIES,
+        retryDelay,
       },
     },
   });

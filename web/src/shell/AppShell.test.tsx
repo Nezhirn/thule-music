@@ -1,8 +1,16 @@
-import { screen, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { MemoryRouter, useNavigate } from "react-router";
 import type { Schemas } from "../api/client";
+import { AppProviders } from "../AppProviders";
+import { REFRESH_TOKEN_KEY } from "../auth/tokens";
+import { AppRoutes } from "../routes";
 import { mockAccount, renderSignedIn } from "../test/account";
 import { apiError, url } from "../test/api";
+import { FakeAudio } from "../test/audio";
+import { WIND, album, albumDetail, page } from "../test/catalog";
 import { server } from "../test/server";
 
 const PLAYLIST: Schemas["PlaylistOut"] = {
@@ -108,4 +116,50 @@ test("the account menu works from the keyboard", async () => {
   await user.click(screen.getByRole("menuitem", { name: "Settings" }));
   expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("back to a list comes back to where it was scrolled to; a new page starts at its top", async () => {
+  mockAccount();
+  const albums = Array.from({ length: 40 }, (_, i) => album(`Album ${i + 1}`, WIND));
+  server.use(
+    http.get(url("/api/v1/albums"), () => HttpResponse.json(page(albums))),
+    http.get(url("/api/v1/genres"), () => HttpResponse.json([])),
+    http.get(url(`/api/v1/albums/${albums[30]!.id}`), () =>
+      HttpResponse.json(albumDetail(albums[30]!, [])),
+    ),
+    http.get(url(`/api/v1/artists/${WIND.id}`), () => HttpResponse.json({ albums: [] })),
+  );
+  function Back() {
+    const navigate = useNavigate();
+    return (
+      <button type="button" onClick={() => void navigate(-1)}>
+        Go back
+      </button>
+    );
+  }
+  localStorage.setItem(REFRESH_TOKEN_KEY, "refresh-1");
+  const user = userEvent.setup();
+  render(
+    <AppProviders
+      queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      audio={new FakeAudio().asAudio()}
+    >
+      <MemoryRouter initialEntries={["/albums"]}>
+        <AppRoutes />
+        <Back />
+      </MemoryRouter>
+    </AppProviders>,
+  );
+  await screen.findByRole("link", { name: "Album 31" });
+  const main = screen.getByRole("main");
+  main.scrollTop = 900;
+  fireEvent.scroll(main);
+
+  await user.click(screen.getByRole("link", { name: "Album 31" }));
+  await screen.findByRole("heading", { level: 1, name: "Album 31" });
+  expect(main.scrollTop).toBe(0);
+
+  await user.click(screen.getByRole("button", { name: "Go back" }));
+  await screen.findByRole("heading", { level: 1, name: "Albums" });
+  await waitFor(() => expect(main.scrollTop).toBe(900));
 });

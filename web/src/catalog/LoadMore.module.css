@@ -1,5 +1,6 @@
 .more {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
   padding: 24px 0 8px;
 }

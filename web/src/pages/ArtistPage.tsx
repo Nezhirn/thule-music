@@ -13,7 +13,8 @@ import { useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { ArtistImage } from "../catalog/ArtistImage";
 import { DetailHeader } from "../catalog/DetailHeader";
-import { PageFailed, PageLoading } from "../catalog/PageStatus";
+import { PageFailed, PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { artistQuery, type Album } from "../catalog/queries";
 import { TrackTable } from "../catalog/TrackTable";
 import { useEdits } from "../edits/context";
@@ -39,7 +40,7 @@ export function ArtistPage() {
   const player = usePlayerControls();
   const edits = useEdits();
   if (query.isPending) return <PageLoading />;
-  if (query.isError) {
+  if (failedToLoad(query)) {
     return (
       <PageFailed
         error={query.error}
@@ -56,6 +57,7 @@ export function ArtistPage() {
   const popular = artist.top_tracks;
   return (
     <>
+      <RefreshFailed query={query} />
       <DetailHeader
         kind={t.catalog.artist}
         title={artist.name}

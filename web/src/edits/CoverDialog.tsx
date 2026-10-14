@@ -9,7 +9,7 @@ import type { Album, Track } from "../catalog/queries";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import type { CoverSubject } from "./context";
 import { MAX_COVER_BYTES, useAlbumCover, useArtistCover, useTrackCover } from "./queries";
 import styles from "./edits.module.css";
@@ -235,9 +235,7 @@ function CoverPicker({
       {refused && <Alert tone="error">{refused}</Alert>}
       {error && !refused && <Alert tone="error">{errorMessage(t, error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.done}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.done}</DialogCancel>
       </DialogButtons>
     </>
   );

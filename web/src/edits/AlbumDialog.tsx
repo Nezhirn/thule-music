@@ -5,7 +5,7 @@ import type { Album } from "../catalog/queries";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import { TextField } from "../ui/TextField";
 import { useUpdateAlbum } from "./queries";
 import styles from "./edits.module.css";
@@ -89,9 +89,7 @@ function AlbumForm({ album, onClose }: { album: Album; onClose(): void }) {
       <p className={styles.hint}>{t.edits.tagsNote}</p>
       {save.error && <Alert tone="error">{errorMessage(t, save.error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button
           type="submit"
           disabled={!title.trim() || !artist.trim() || badYear}

@@ -8,7 +8,7 @@ import type { Album } from "../catalog/queries";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import type { AlbumsMoveSubject } from "./context";
 import { AlbumChecklist, ArtistPicker, GenrePicker } from "./Pickers";
 import { genreAlbumsQuery, useMoveAlbums, useSetAlbumsGenre } from "./queries";
@@ -142,9 +142,7 @@ function MoveForm({
       <p className={styles.hint}>{subject.kind === "artist" ? text.artistNote : text.genreNote}</p>
       {move.error && <Alert tone="error">{errorMessage(t, move.error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button type="submit" disabled={!ready} busyLabel={move.isPending && text.moving}>
           {text.submit}
         </Button>

@@ -8,6 +8,7 @@ import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { lyricsQuery, stanzas } from "./queries";
 import styles from "./Lyrics.module.css";
+import { failedToLoad } from "../catalog/loaded";
 
 /** A track's lyrics as text to read, stanza by stanza, and where they come from; or why
  * there are none. `size`: large on its page, smaller in the phone's player. Admins get a
@@ -39,7 +40,7 @@ function Words({ track, size }: { track: Track; size: "large" | "small" }) {
       </p>
     );
   }
-  if (lyrics.isError) {
+  if (failedToLoad(lyrics)) {
     return <LoadError error={lyrics.error} onRetry={() => void lyrics.refetch()} />;
   }
   if (lyrics.data?.instrumental) {

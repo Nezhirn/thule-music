@@ -86,6 +86,13 @@ async function send(
   }
 }
 
+// How often the progress is reported at most (ms): each report renders the list of uploads.
+const PROGRESS_EVERY = 250;
+// An upload that sends nothing for this long (ms) has stalled: a connection gone without a
+// word. Once all of it is sent, the server has this much longer to save it and answer.
+const STALLED_AFTER = 60_000;
+const ANSWER_WITHIN = 5 * 60_000;
+
 function post(
   url: string,
   form: FormData,
@@ -98,9 +105,26 @@ function post(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     if (token !== null) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+    let stalled = false;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const wait = (ms: number) => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        stalled = true;
+        xhr.abort();
+      }, ms);
     };
+    let reported = 0;
+    xhr.upload.onprogress = (event) => {
+      wait(STALLED_AFTER);
+      if (!event.lengthComputable || event.total <= 0) return;
+      const now = Date.now();
+      if (event.loaded < event.total && now - reported < PROGRESS_EVERY) return;
+      reported = now;
+      onProgress(event.loaded / event.total);
+    };
+    xhr.upload.onload = () => wait(ANSWER_WITHIN);
+    xhr.onloadend = () => clearTimeout(watchdog);
     xhr.onload = () => {
       const headers = new Headers();
       for (const name of ["Content-Type", "Retry-After"]) {
@@ -119,8 +143,14 @@ function post(
           () => reject(new TypeError("Network error")),
           () => reject(new UnreadableFile(file.name)),
         );
-    xhr.onabort = () => reject(new DOMException("Upload stopped", "AbortError"));
+    xhr.onabort = () =>
+      reject(
+        stalled
+          ? new TypeError("The upload stalled")
+          : new DOMException("Upload stopped", "AbortError"),
+      );
     signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    wait(STALLED_AFTER);
     xhr.send(form);
   });
 }

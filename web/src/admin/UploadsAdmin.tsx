@@ -7,10 +7,13 @@ import {
   LoaderCircle,
   RotateCcw,
   UploadCloud,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import { useRef, useState, type DragEvent } from "react";
+import { memo, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/errors";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
@@ -19,7 +22,7 @@ import { Card } from "../ui/Card";
 import { IconButton } from "../ui/IconButton";
 import { UnreadableFile } from "./send";
 import { ACCEPT, inProgress, type Picked, type Upload, type UploadState } from "./uploads";
-import { useUploads, useUploadsState } from "./uploadsContext";
+import { useUploads } from "./uploadsContext";
 import styles from "./admin.module.css";
 
 /** Uploading music: files or whole album folders, followed until they are in the library. */
@@ -36,7 +39,7 @@ function Picker() {
   const { t } = useI18n();
   const text = t.admin.uploads;
   const uploads = useUploads();
-  const { skipped } = useUploadsState();
+  const skipped = useStore(uploads.store, (state) => state.skipped);
   const [over, setOver] = useState(false);
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -147,27 +150,52 @@ function UploadList() {
   const { t } = useI18n();
   const text = t.admin.uploads;
   const uploads = useUploads();
-  const { items } = useUploadsState();
-  if (!items.length) return null;
-
-  const done = items.filter((item) => !inProgress(item)).length;
-  const folders = new Map<string, Upload[]>();
-  for (const item of items) folders.set(item.folder, [...(folders.get(item.folder) ?? []), item]);
-  const byName = (a: Upload, b: Upload) =>
-    a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
+  // The list's shape (which files, in which folders) changes only when files are added or
+  // cleared; each row follows its own file. Progress renders one row, not thousands.
+  const ids = useStore(
+    uploads.store,
+    useShallow((state) => state.items.map((item) => item.id)),
+  );
+  const folders = useMemo(() => {
+    const byName = (a: Upload, b: Upload) =>
+      a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
+    // The files `ids` lists, read when they change.
+    const byId = new Map(uploads.store.getState().items.map((item) => [item.id, item]));
+    const items = ids.flatMap((id) => byId.get(id) ?? []);
+    const grouped = new Map<string, Upload[]>();
+    for (const item of items) grouped.set(item.folder, [...(grouped.get(item.folder) ?? []), item]);
+    return [...grouped].map(([folder, files]) => ({
+      folder,
+      ids: files.sort(byName).map((item) => item.id),
+    }));
+  }, [uploads, ids]);
+  const done = useStore(uploads.store, (state) => state.items.filter((i) => !inProgress(i)).length);
+  const sending = useStore(uploads.store, (state) =>
+    state.items.some((i) => i.state.stage === "waiting" || i.state.stage === "uploading"),
+  );
+  const stuck = useStore(uploads.store, (state) => state.importsStuck);
+  if (!ids.length) return null;
 
   return (
     <Card title={text.list}>
       <div className={styles.groupHead}>
-        <p className={styles.note}>{text.summary(done, items.length)}</p>
-        {done > 0 && (
-          <Button variant="secondary" size="small" onClick={() => uploads.clear()}>
-            {text.clear}
-          </Button>
-        )}
+        <p className={styles.note}>{text.summary(done, ids.length)}</p>
+        <div className={styles.actions}>
+          {sending && (
+            <Button variant="secondary" size="small" onClick={() => uploads.cancel()}>
+              {text.cancelRest}
+            </Button>
+          )}
+          {done > 0 && (
+            <Button variant="secondary" size="small" onClick={() => uploads.clear()}>
+              {text.clear}
+            </Button>
+          )}
+        </div>
       </div>
+      {stuck && <Alert tone="info">{text.stuck}</Alert>}
       <ul className={styles.folders}>
-        {[...folders].map(([folder, files]) => (
+        {folders.map(({ folder, ids }) => (
           <li key={folder}>
             {folder && (
               <p className={styles.folder}>
@@ -176,8 +204,8 @@ function UploadList() {
               </p>
             )}
             <ul aria-label={folder || text.list}>
-              {files.sort(byName).map((upload) => (
-                <UploadRow key={upload.id} upload={upload} />
+              {ids.map((id) => (
+                <UploadRow key={id} id={id} />
               ))}
             </ul>
           </li>
@@ -198,10 +226,12 @@ const ICONS: Record<UploadState["stage"], LucideIcon> = {
   error: CircleAlert,
 };
 
-function UploadRow({ upload }: { upload: Upload }) {
+const UploadRow = memo(function UploadRow({ id }: { id: number }) {
   const { t } = useI18n();
   const text = t.admin.uploads.states;
   const uploads = useUploads();
+  const upload = useStore(uploads.store, (state) => state.items.find((item) => item.id === id));
+  if (!upload) return null;
   const { state, file } = upload;
   const Icon = ICONS[state.stage];
   const track =
@@ -250,6 +280,13 @@ function UploadRow({ upload }: { upload: Upload }) {
           onClick={() => uploads.retry(upload.id)}
         />
       )}
+      {(state.stage === "waiting" || state.stage === "uploading") && (
+        <IconButton
+          icon={X}
+          label={t.admin.uploads.cancel(file.name)}
+          onClick={() => uploads.cancel([upload.id])}
+        />
+      )}
     </li>
   );
-}
+});

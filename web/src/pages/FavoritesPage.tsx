@@ -6,7 +6,8 @@ import { AlbumCard } from "../catalog/AlbumCard";
 import { ArtistCard } from "../catalog/ArtistCard";
 import { LoadError } from "../catalog/LoadError";
 import { LoadMore } from "../catalog/LoadMore";
-import { PageLoading } from "../catalog/PageStatus";
+import { PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { useI18n } from "../i18n";
 import { favouriteAlbumsQuery, favouriteArtistsQuery } from "../likes/queries";
 import { EmptyState } from "../ui/EmptyState";
@@ -51,8 +52,9 @@ function Albums() {
   const { t } = useI18n();
   const albums = useInfiniteQuery(favouriteAlbumsQuery);
   if (albums.isPending) return <PageLoading />;
-  if (albums.isError)
+  if (failedToLoad(albums)) {
     return <LoadError error={albums.error} onRetry={() => void albums.refetch()} />;
+  }
   if (albums.data.pages[0]?.total === 0) {
     return (
       <EmptyState icon={Star} title={t.likes.noAlbums}>
@@ -62,6 +64,7 @@ function Albums() {
   }
   return (
     <>
+      <RefreshFailed query={albums} />
       <ul className={grid.grid} aria-label={t.likes.albums}>
         {albums.data.pages.flatMap((page) =>
           page.items.map((album) => (
@@ -80,7 +83,7 @@ function Artists() {
   const { t } = useI18n();
   const artists = useInfiniteQuery(favouriteArtistsQuery);
   if (artists.isPending) return <PageLoading />;
-  if (artists.isError) {
+  if (failedToLoad(artists)) {
     return <LoadError error={artists.error} onRetry={() => void artists.refetch()} />;
   }
   if (artists.data.pages[0]?.total === 0) {
@@ -92,6 +95,7 @@ function Artists() {
   }
   return (
     <>
+      <RefreshFailed query={artists} />
       <ul className={grid.grid} aria-label={t.likes.artists}>
         {artists.data.pages.flatMap((page) =>
           page.items.map((artist) => (

@@ -153,5 +153,68 @@ test("signing out stops the uploads and forgets them", () => {
   expect(signals).toHaveLength(2);
   uploads.reset();
   expect(signals.every((signal) => signal.aborted)).toBe(true);
-  expect(uploads.store.getState()).toEqual({ items: [], skipped: 0, finished: null });
+  expect(uploads.store.getState()).toEqual({
+    items: [],
+    skipped: 0,
+    finished: null,
+    importsStuck: false,
+  });
+});
+
+test("files can be cancelled before or while they are sent; the next ones go on", () => {
+  const server = fakeServer();
+  const signals = new Map<string, AbortSignal>();
+  const uploads = createUploads({
+    ...server.deps,
+    send: (file, _folder, _progress, signal) => {
+      signals.set(file.name, signal);
+      return new Promise(() => {});
+    },
+  });
+  uploads.add([file("a.mp3"), file("b.mp3"), file("c.mp3"), file("d.mp3")]);
+  const names = () => uploads.store.getState().items.map((item) => item.file.name);
+  const [a, , c] = uploads.store.getState().items;
+  // One being sent: stopped, and the next waiting one starts in its place.
+  uploads.cancel([a!.id]);
+  expect(signals.get("a.mp3")?.aborted).toBe(true);
+  expect([...signals.keys()]).toEqual(["a.mp3", "b.mp3", "c.mp3"]);
+  // One waiting: just taken out.
+  uploads.cancel([c!.id]);
+  expect(names()).toEqual(["b.mp3", "d.mp3"]);
+  expect([...signals.keys()]).toEqual(["a.mp3", "b.mp3", "c.mp3", "d.mp3"]);
+  // The rest.
+  uploads.cancel();
+  expect(names()).toEqual([]);
+  expect(signals.get("b.mp3")?.aborted).toBe(true);
+  expect(signals.get("d.mp3")?.aborted).toBe(true);
+});
+
+test("imports that wait long with none done say the worker may not be running", async () => {
+  vi.useFakeTimers();
+  const server = fakeServer();
+  let now = 0;
+  const uploads = createUploads({ ...server.deps, now: () => now });
+  const stuck = () => uploads.store.getState().importsStuck;
+  uploads.add([file("a.mp3"), file("b.mp3")]);
+  server.sent[0]?.settle({ path: "uploads/a.mp3", duplicate: false });
+  server.sent[1]?.settle({ path: "uploads/b.mp3", duplicate: false });
+  await vi.waitFor(() =>
+    expect(uploads.store.getState().items.every((i) => i.state.stage === "importing")).toBe(true),
+  );
+  for (let waited = 0; waited < 30_000; waited += 1500) {
+    now += 1500;
+    await vi.advanceTimersByTimeAsync(1500);
+  }
+  expect(stuck()).toBe(true);
+  // One added: the worker is there after all.
+  server.statuses.set("uploads/a.mp3", {
+    path: "uploads/a.mp3",
+    state: "imported",
+    error: null,
+    track: SONG,
+  });
+  now += 1500;
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(stuck()).toBe(false);
+  vi.useRealTimers();
 });

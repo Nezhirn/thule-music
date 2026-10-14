@@ -9,6 +9,7 @@ import { LIBRARY_SECTIONS, SECTIONS, sectionName } from "../shell/sections";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import styles from "./LibraryPage.module.css";
+import { failedToLoad } from "../catalog/loaded";
 
 /** The library's sections and the playlists: the sidebar's content, for phones. */
 export function LibraryPage() {
@@ -42,7 +43,7 @@ export function LibraryPage() {
           )}
         </NewPlaylist>
       </div>
-      {playlists.isError && <p className={styles.note}>{t.nav.playlistsFailed}</p>}
+      {failedToLoad(playlists) && <p className={styles.note}>{t.nav.playlistsFailed}</p>}
       {playlists.data?.length === 0 && <p className={styles.note}>{t.nav.noPlaylists}</p>}
       {playlists.data && playlists.data.length > 0 && (
         <ul className={styles.list}>

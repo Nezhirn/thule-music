@@ -8,7 +8,7 @@ import { useI18n } from "../i18n";
 import { lyricsQuery, type Lyrics } from "../lyrics/queries";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog } from "../ui/Dialog";
+import { Dialog, DialogCancel } from "../ui/Dialog";
 import { Switch } from "../ui/Switch";
 import { TextArea } from "../ui/TextField";
 import { useFindLyricsAgain, useSaveLyrics } from "./queries";
@@ -114,9 +114,7 @@ function LyricsForm({
           {text.findAgainNote}
         </span>
         <span className={styles.spacer} />
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button type="submit" disabled={busy} busyLabel={save.isPending && text.saving}>
           {text.save}
         </Button>

@@ -5,7 +5,8 @@ import { AlbumCard } from "../catalog/AlbumCard";
 import { GenreLinks } from "../catalog/GenreLinks";
 import { LoadError } from "../catalog/LoadError";
 import { NewAlbum } from "../catalog/NewAlbum";
-import { PageLoading } from "../catalog/PageStatus";
+import { PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { genresQuery, homeQuery, type Album } from "../catalog/queries";
 import { Shelf } from "../catalog/Shelf";
 import { useI18n } from "../i18n";
@@ -46,7 +47,7 @@ export function HomePage() {
       </>
     );
   }
-  if (home.isError) {
+  if (failedToLoad(home)) {
     return (
       <>
         {header}
@@ -68,6 +69,7 @@ export function HomePage() {
   return (
     <>
       {header}
+      <RefreshFailed query={home} />
       <Shelf title={t.home.recentlyAdded} more="/albums" wide>
         {recently_added.slice(0, 6).map((album) => (
           <NewAlbum key={album.id} album={album} />

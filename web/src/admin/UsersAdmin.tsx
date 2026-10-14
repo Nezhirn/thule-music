@@ -20,6 +20,7 @@ import {
 } from "../auth/validation";
 import { LoadError } from "../catalog/LoadError";
 import { PageLoading } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Avatar } from "../ui/Avatar";
@@ -56,7 +57,7 @@ export function UsersAdmin() {
         </Button>
         {users.isPending ? (
           <PageLoading />
-        ) : users.isError ? (
+        ) : failedToLoad(users) ? (
           <LoadError error={users.error} onRetry={() => void users.refetch()} />
         ) : (
           <ul className={styles.users}>

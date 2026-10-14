@@ -91,7 +91,9 @@ export function AlbumsPage() {
         )}
       </div>
       {albums.isPending && <PageLoading />}
-      {albums.isError && <LoadError error={albums.error} onRetry={() => void albums.refetch()} />}
+      {albums.isError && !albums.isFetchNextPageError && (
+        <LoadError error={albums.error} onRetry={() => void albums.refetch()} />
+      )}
       {total === 0 && <EmptyState icon={Disc3} title={t.catalog.noAlbums} />}
       {albums.data && (
         <ul className={grid.grid}>

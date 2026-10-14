@@ -54,6 +54,10 @@ export const en = {
     tabs: "Sections",
     account: (name: string) => `Account: ${name}`,
     settings: "Settings",
+    pageCrashed: "Something went wrong on this page.",
+    appCrashed: "Something went wrong.",
+    reload: "Reload",
+    resetAndReload: "Forget the saved queue and reload",
   },
   nav: {
     home: "Home",
@@ -580,6 +584,10 @@ export const en = {
         error: "Not uploaded",
       },
       retry: (name: string) => `Upload ${name} again`,
+      cancel: (name: string) => `Cancel ${name}`,
+      cancelRest: "Cancel the rest",
+      stuck:
+        "The files are saved but haven't been added for a while. Check that the worker process is running on the server.",
       unreadable: "The file can't be read: it may have been moved or deleted.",
       clear: "Clear the list",
       finished: (added: number, failed: number) =>

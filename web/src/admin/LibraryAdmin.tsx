@@ -23,6 +23,7 @@ import {
 } from "./queries";
 import { useLibraryWork } from "./work";
 import styles from "./admin.module.css";
+import { failedToLoad } from "../catalog/loaded";
 
 // A scan waiting this long has no worker to run it, most likely.
 const STUCK_AFTER_MS = 10_000;
@@ -45,7 +46,7 @@ function Stats() {
   const text = t.admin.stats;
   return (
     <Card title={text.title}>
-      {stats.isError ? (
+      {failedToLoad(stats) ? (
         <LoadError error={stats.error} onRetry={() => void stats.refetch()} />
       ) : (
         <dl className={styles.stats} aria-busy={stats.isPending}>
@@ -195,7 +196,7 @@ function JobsCard({ work }: { work: Work }) {
   );
   return (
     <Card title={text.title}>
-      {work.summary.isError ? (
+      {failedToLoad(work.summary) ? (
         <LoadError error={work.summary.error} onRetry={() => void work.summary.refetch()} />
       ) : kinds.length ? (
         <div className={styles.group}>
@@ -237,7 +238,8 @@ function FailedJobs() {
   });
 
   if (jobs.isPending) return null;
-  if (jobs.isError) return <LoadError error={jobs.error} onRetry={() => void jobs.refetch()} />;
+  if (failedToLoad(jobs))
+    return <LoadError error={jobs.error} onRetry={() => void jobs.refetch()} />;
   const total = jobs.data.pages[0]?.total ?? 0;
   if (total === 0) return <p className={styles.note}>{text.noFailures}</p>;
   return (

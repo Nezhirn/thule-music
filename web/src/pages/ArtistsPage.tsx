@@ -18,7 +18,7 @@ export function ArtistsPage() {
     <>
       <PageHeader title={t.nav.artists} />
       {artists.isPending && <PageLoading />}
-      {artists.isError && (
+      {artists.isError && !artists.isFetchNextPageError && (
         <LoadError error={artists.error} onRetry={() => void artists.refetch()} />
       )}
       {total === 0 && <EmptyState icon={MicVocal} title={t.catalog.noArtists} />}

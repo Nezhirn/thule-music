@@ -4,7 +4,8 @@ import { Link, useParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { Cover } from "../catalog/Cover";
 import { DetailHeader } from "../catalog/DetailHeader";
-import { PageFailed, PageLoading } from "../catalog/PageStatus";
+import { PageFailed, PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { albumQuery, artistQuery, type Album } from "../catalog/queries";
 import { Shelf } from "../catalog/Shelf";
 import { TrackTable } from "../catalog/TrackTable";
@@ -25,7 +26,7 @@ export function AlbumPage() {
   const player = usePlayerControls();
   const edits = useEdits();
   if (query.isPending) return <PageLoading />;
-  if (query.isError) {
+  if (failedToLoad(query)) {
     return (
       <PageFailed
         error={query.error}
@@ -40,6 +41,7 @@ export function AlbumPage() {
   const source = { type: "album", id: album.id } as const;
   return (
     <>
+      <RefreshFailed query={query} />
       <DetailHeader
         kind={compilation ? t.catalog.compilation : t.catalog.album}
         title={album.title}

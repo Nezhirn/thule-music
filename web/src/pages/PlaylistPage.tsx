@@ -5,7 +5,8 @@ import { useNavigate, useParams } from "react-router";
 import { api } from "../api/client";
 import { errorMessage, unwrap } from "../api/errors";
 import { DetailHeader } from "../catalog/DetailHeader";
-import { PageFailed, PageLoading } from "../catalog/PageStatus";
+import { PageFailed, PageLoading, RefreshFailed } from "../catalog/PageStatus";
+import { failedToLoad } from "../catalog/loaded";
 import { TrackTable } from "../catalog/TrackTable";
 import { useI18n } from "../i18n";
 import { usePlayerControls } from "../player/context";
@@ -22,7 +23,7 @@ import {
   type PlaylistDetail,
 } from "../playlists/queries";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import { EmptyState } from "../ui/EmptyState";
 import { IconButton } from "../ui/IconButton";
 import { MenuItem } from "../ui/Menu";
@@ -56,7 +57,7 @@ function Playlist({ id }: { id: string }) {
   }, [query.data]);
 
   if (query.isPending) return <PageLoading />;
-  if (query.isError) {
+  if (failedToLoad(query)) {
     return (
       <PageFailed
         error={query.error}
@@ -112,6 +113,7 @@ function Playlist({ id }: { id: string }) {
 
   return (
     <>
+      <RefreshFailed query={query} />
       <DetailHeader
         kind={t.playlists.playlist}
         title={playlist.name}
@@ -241,11 +243,10 @@ function DeleteDialog({
       onClose={onClose}
       title={t.playlists.deleteTitle(playlist.name)}
       description={t.playlists.deleteText}
+      busy={busy}
     >
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.playlists.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.playlists.cancel}</DialogCancel>
         <Button busyLabel={busy && t.playlists.deleting} onClick={() => void confirm()}>
           {t.playlists.deleteConfirm}
         </Button>

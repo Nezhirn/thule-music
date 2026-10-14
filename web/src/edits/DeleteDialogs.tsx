@@ -8,7 +8,7 @@ import { albumQuery, type Album, type Track } from "../catalog/queries";
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import type { GenreSubject } from "./context";
 import { ArtistPicker } from "./Pickers";
 import {
@@ -80,9 +80,7 @@ function DeleteAlbum({ album, count, onClose }: { album: Album; count: number; o
     <>
       <Options legend={text.title} options={options} value={mode} onChange={setMode} />
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button
           variant="danger"
           disabled={!mode}
@@ -122,9 +120,7 @@ function DeleteTrack({ track, onClose }: { track: Track; onClose(): void }) {
     <>
       <p className={styles.hint}>{text.text}</p>
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button
           variant="danger"
           busyLabel={remove.isPending && text.deleting}
@@ -257,9 +253,7 @@ function DeleteArtist({ artist, onClose }: { artist: Schemas["ArtistDetail"]; on
       )}
       {busy.error && <Alert tone="error">{errorMessage(t, busy.error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button
           variant={mode === "give" ? "primary" : "danger"}
           disabled={!ready}
@@ -333,9 +327,7 @@ function DeleteGenre({ genre, onClose }: { genre: GenreSubject; onClose(): void 
       />
       {remove.error && <Alert tone="error">{errorMessage(t, remove.error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button
           variant="danger"
           disabled={!mode}

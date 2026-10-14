@@ -1,5 +1,14 @@
 import { Clock, Pause, Play } from "lucide-react";
-import { useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  memo,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 import { useI18n } from "../i18n";
 import { LikeButton } from "../likes/LikeButton";
@@ -63,10 +72,59 @@ export function TrackTable({
 }: Props) {
   const { t } = useI18n();
   const player = usePlayerControls();
-  const currentId = usePlayer((state) => selectTrack(state)?.id ?? null);
-  const playing = usePlayer((state) => state.playing);
-  const [drag, setDrag] = useState<{ from: number; to: number | null } | null>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
   const columns = 5 + Number(Boolean(withAlbum));
+
+  // What the rows' handlers read when called: the handlers stay the same objects, so a row
+  // renders again only when what it shows changes.
+  const latest = useRef({ tracks, queue, source, onMove, drag });
+  useLayoutEffect(() => {
+    latest.current = { tracks, queue, source, onMove, drag };
+  });
+  const handlers = useMemo<RowHandlers>(() => {
+    const play = (index: number) => {
+      const { tracks, queue, source } = latest.current;
+      if (tracks[index]?.id === selectTrack(player.store.getState())?.id) {
+        player.toggle();
+        return;
+      }
+      player.play(queue, { start: index, source });
+    };
+    return {
+      play,
+      // Clicks on the row itself, not on its links and buttons.
+      click(event, index, touch) {
+        if ((event.target as Element).closest("a, button")) return;
+        if (touch !== window.matchMedia("(hover: none)").matches) return;
+        play(index);
+      },
+      dragStart(event, index) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", latest.current.tracks[index]?.title ?? "");
+        event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
+        setDrag({ from: index, to: null });
+      },
+      dragOver(event, index) {
+        const { drag } = latest.current;
+        if (!drag) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        const { top, height } = event.currentTarget.getBoundingClientRect();
+        const to = event.clientY < top + height / 2 ? index : index + 1;
+        if (drag.to !== to) setDrag({ ...drag, to });
+      },
+      drop(event) {
+        const { drag, onMove } = latest.current;
+        if (!drag || drag.to === null) return;
+        event.preventDefault();
+        // Where it lands once taken out of its place.
+        const to = drag.to > drag.from ? drag.to - 1 : drag.to;
+        if (to !== drag.from) onMove?.(drag.from, to);
+        setDrag(null);
+      },
+      dragEnd: () => setDrag(null),
+    };
+  }, [player]);
 
   const discs = byDisc
     ? group(tracks, (track) => (track.disc_no === null ? null : t.catalog.disc(track.disc_no)))
@@ -77,47 +135,6 @@ export function TrackTable({
       ? discs
       : [{ heading: null, rows: tracks.map((_, i) => i) }];
 
-  const play = (index: number) => {
-    if (tracks[index]?.id === currentId) {
-      player.toggle();
-      return;
-    }
-    player.play(queue, { start: index, source });
-  };
-  // Clicks on the row itself, not on its links and buttons.
-  const onRow = (event: MouseEvent, index: number, touch: boolean) => {
-    if ((event.target as Element).closest("a, button")) return;
-    if (touch !== window.matchMedia("(hover: none)").matches) return;
-    play(index);
-  };
-
-  const dragging = (index: number) =>
-    onMove && {
-      draggable: true,
-      onDragStart(event: DragEvent<HTMLTableRowElement>) {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", tracks[index]?.title ?? "");
-        event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
-        setDrag({ from: index, to: null });
-      },
-      onDragOver(event: DragEvent<HTMLTableRowElement>) {
-        if (!drag) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        const { top, height } = event.currentTarget.getBoundingClientRect();
-        const to = event.clientY < top + height / 2 ? index : index + 1;
-        if (drag.to !== to) setDrag({ ...drag, to });
-      },
-      onDrop(event: DragEvent<HTMLTableRowElement>) {
-        if (!drag || drag.to === null) return;
-        event.preventDefault();
-        // Where it lands once taken out of its place.
-        const to = drag.to > drag.from ? drag.to - 1 : drag.to;
-        if (to !== drag.from) onMove(drag.from, to);
-        setDrag(null);
-      },
-      onDragEnd: () => setDrag(null),
-    };
   // The line showing where a dragged row would land: above a row, or below the last.
   const dropMark = (index: number) => {
     if (!drag || drag.to === null || drag.to === drag.from || drag.to === drag.from + 1) {
@@ -169,85 +186,27 @@ export function TrackTable({
           )}
           {rows.map((index) => {
             const track = tracks[index]!;
-            const credits = track.artists.length ? track.artists : [track.artist];
-            const showCredits =
-              !albumArtistId || credits.some((artist) => artist.id !== albumArtistId);
-            const current = track.id === currentId;
-            const number =
-              numbers === "track" ? (track.track_no ?? "") : numbers === "position" && index + 1;
             return (
-              <tr
+              <Row
                 key={keys?.[index] ?? track.id}
-                className={styles.row}
-                aria-current={current || undefined}
-                data-key={keys?.[index]}
-                data-drop={dropMark(index)}
-                data-dragged={drag?.from === index || undefined}
-                onDoubleClick={(event) => onRow(event, index, false)}
-                onClick={(event) => onRow(event, index, true)}
-                {...dragging(index)}
-              >
-                <td className={styles.number}>
-                  <div className={styles.slot}>
-                    {current && playing ? (
-                      <span className={styles.bars} aria-hidden="true">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                    ) : (
-                      <span className={styles.index}>{number}</span>
-                    )}
-                    <button
-                      type="button"
-                      className={styles.play}
-                      aria-label={
-                        current && playing ? t.player.pause : t.player.playItem(track.title)
-                      }
-                      onClick={() => play(index)}
-                    >
-                      {current && playing ? <Pause /> : <Play />}
-                    </button>
-                  </div>
-                </td>
-                <td>
-                  <div className={styles.main}>
-                    {withAlbum && (
-                      <Cover id={track.cover_id} sizes="40px" className={styles.cover} />
-                    )}
-                    <div className={styles.titles}>
-                      <span className={styles.title}>{track.title}</span>
-                      {(showCredits || withAlbum) && (
-                        <span className={styles.credits}>
-                          {showCredits && <ArtistLinks artists={credits} />}
-                          {withAlbum && (
-                            <span className={styles.inlineAlbum}>
-                              {showCredits && " · "}
-                              {track.album.title}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </td>
-                {withAlbum && (
-                  <td className={styles.album}>
-                    <Link to={`/albums/${track.album.id}`} className={styles.albumLink}>
-                      {track.album.title}
-                    </Link>
-                  </td>
-                )}
-                <td className={styles.like}>
-                  <LikeButton track={track} className={styles.heart} />
-                </td>
-                <td className={styles.duration}>{duration(track.duration_ms)}</td>
-                <td className={styles.actions}>
-                  <TrackActions track={track} className={styles.more}>
-                    {actions?.(index)}
-                  </TrackActions>
-                </td>
-              </tr>
+                track={track}
+                index={index}
+                rowKey={keys?.[index]}
+                number={
+                  numbers === "track"
+                    ? (track.track_no ?? "")
+                    : numbers === "position"
+                      ? index + 1
+                      : ""
+                }
+                albumArtistId={albumArtistId}
+                withAlbum={withAlbum}
+                draggable={Boolean(onMove)}
+                drop={dropMark(index)}
+                dragged={drag?.from === index}
+                actions={actions}
+                handlers={handlers}
+              />
             );
           })}
         </tbody>
@@ -255,6 +214,134 @@ export function TrackTable({
     </table>
   );
 }
+
+interface Drag {
+  from: number;
+  to: number | null;
+}
+
+interface RowHandlers {
+  play(index: number): void;
+  click(event: MouseEvent, index: number, touch: boolean): void;
+  dragStart(event: DragEvent<HTMLTableRowElement>, index: number): void;
+  dragOver(event: DragEvent<HTMLTableRowElement>, index: number): void;
+  drop(event: DragEvent<HTMLTableRowElement>): void;
+  dragEnd(): void;
+}
+
+interface RowProps {
+  track: Track;
+  index: number;
+  rowKey?: string;
+  number: number | string;
+  albumArtistId?: string;
+  withAlbum?: boolean;
+  draggable: boolean;
+  drop?: "before" | "after";
+  dragged: boolean;
+  actions?(index: number): ReactNode;
+  handlers: RowHandlers;
+}
+
+/** One track. It follows the player itself (playing, paused, another track): a new track or
+ * a pause renders the two rows it concerns, not a playlist of thousands. */
+const Row = memo(function Row({
+  track,
+  index,
+  rowKey,
+  number,
+  albumArtistId,
+  withAlbum,
+  draggable,
+  drop,
+  dragged,
+  actions,
+  handlers,
+}: RowProps) {
+  const { t } = useI18n();
+  const state = usePlayer((player) =>
+    selectTrack(player)?.id === track.id ? (player.playing ? "playing" : "current") : null,
+  );
+  const current = state !== null;
+  const playing = state === "playing";
+  const credits = track.artists.length ? track.artists : [track.artist];
+  const showCredits = !albumArtistId || credits.some((artist) => artist.id !== albumArtistId);
+  return (
+    <tr
+      className={styles.row}
+      aria-current={current || undefined}
+      data-key={rowKey}
+      data-drop={drop}
+      data-dragged={dragged || undefined}
+      onDoubleClick={(event) => handlers.click(event, index, false)}
+      onClick={(event) => handlers.click(event, index, true)}
+      {...(draggable && {
+        draggable: true,
+        onDragStart: (event: DragEvent<HTMLTableRowElement>) => handlers.dragStart(event, index),
+        onDragOver: (event: DragEvent<HTMLTableRowElement>) => handlers.dragOver(event, index),
+        onDrop: handlers.drop,
+        onDragEnd: handlers.dragEnd,
+      })}
+    >
+      <td className={styles.number}>
+        <div className={styles.slot}>
+          {playing ? (
+            <span className={styles.bars} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : (
+            <span className={styles.index}>{number}</span>
+          )}
+          <button
+            type="button"
+            className={styles.play}
+            aria-label={playing ? t.player.pause : t.player.playItem(track.title)}
+            onClick={() => handlers.play(index)}
+          >
+            {playing ? <Pause /> : <Play />}
+          </button>
+        </div>
+      </td>
+      <td>
+        <div className={styles.main}>
+          {withAlbum && <Cover id={track.cover_id} sizes="40px" className={styles.cover} />}
+          <div className={styles.titles}>
+            <span className={styles.title}>{track.title}</span>
+            {(showCredits || withAlbum) && (
+              <span className={styles.credits}>
+                {showCredits && <ArtistLinks artists={credits} />}
+                {withAlbum && (
+                  <span className={styles.inlineAlbum}>
+                    {showCredits && " · "}
+                    {track.album.title}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        </div>
+      </td>
+      {withAlbum && (
+        <td className={styles.album}>
+          <Link to={`/albums/${track.album.id}`} className={styles.albumLink}>
+            {track.album.title}
+          </Link>
+        </td>
+      )}
+      <td className={styles.like}>
+        <LikeButton track={track} className={styles.heart} />
+      </td>
+      <td className={styles.duration}>{duration(track.duration_ms)}</td>
+      <td className={styles.actions}>
+        <TrackActions track={track} className={styles.more}>
+          {actions?.(index)}
+        </TrackActions>
+      </td>
+    </tr>
+  );
+});
 
 /** Runs of rows with the same heading. */
 function group(tracks: Track[], heading: (track: Track, index: number) => string | null) {

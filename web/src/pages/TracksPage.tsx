@@ -33,7 +33,9 @@ export function TracksPage() {
         />
       </div>
       {tracks.isPending && <PageLoading />}
-      {tracks.isError && <LoadError error={tracks.error} onRetry={() => void tracks.refetch()} />}
+      {tracks.isError && !tracks.isFetchNextPageError && (
+        <LoadError error={tracks.error} onRetry={() => void tracks.refetch()} />
+      )}
       {total === 0 && <EmptyState icon={Music} title={t.catalog.noTracks} />}
       {tracks.data && total !== 0 && (
         <TrackTable

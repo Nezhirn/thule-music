@@ -4,6 +4,7 @@ import type { Schemas } from "../api/client";
 import { mockAccount, renderSignedIn } from "../test/account";
 import { url } from "../test/api";
 import { ANNA, PALETTE, WIND, album, albumDetail, track } from "../test/catalog";
+import { asPhone } from "../test/media";
 import { server } from "../test/server";
 import { ambientColors, DEFAULT_ACCENT } from "../theme/theme";
 
@@ -43,7 +44,7 @@ function setup(preferences: Partial<Schemas["Preferences"]> = {}) {
     }),
   );
   const view = renderSignedIn(`/albums/${QUIET.id}`);
-  // The bar along the bottom (the phone's mini player is in the page too: no CSS here).
+  // The bar along the bottom (on a phone, the mini player is in the page too: no CSS here).
   const bar = () => screen.getAllByRole("region", { name: "Player" })[0]!;
   const nowPlaying = () => screen.getByRole("complementary", { name: "Now playing" });
   return { ...view, streams, plays, bar, nowPlaying };
@@ -249,6 +250,7 @@ test("signing out stops the player and forgets the queue", async () => {
 });
 
 test("the phone's mini player opens the full player", async () => {
+  asPhone();
   const { user, audio } = setup();
   await user.click(await screen.findByRole("button", { name: "Play Тихие города" }));
   await waitFor(() => expect(audio.src).not.toBe(""));

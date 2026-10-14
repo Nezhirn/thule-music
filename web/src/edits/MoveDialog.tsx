@@ -9,7 +9,7 @@ import { albumQuery, artistQuery, type Album, type Track } from "../catalog/quer
 import { useI18n } from "../i18n";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
-import { Dialog, DialogButtons } from "../ui/Dialog";
+import { Dialog, DialogButtons, DialogCancel } from "../ui/Dialog";
 import { TextField } from "../ui/TextField";
 import type { MoveSubject } from "./context";
 import { useMoveTracks } from "./queries";
@@ -109,9 +109,7 @@ function MoveForm({ subject, onClose }: { subject: MoveSubject; onClose(): void 
       <p className={styles.hint}>{text.note}</p>
       {move.error && <Alert tone="error">{errorMessage(t, move.error)}</Alert>}
       <DialogButtons>
-        <Button variant="secondary" onClick={onClose}>
-          {t.edits.cancel}
-        </Button>
+        <DialogCancel onClick={onClose}>{t.edits.cancel}</DialogCancel>
         <Button type="submit" disabled={!ready} busyLabel={move.isPending && text.moving}>
           {text.submit}
         </Button>
