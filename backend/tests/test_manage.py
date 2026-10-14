@@ -2,10 +2,17 @@
 nothing to change."""
 
 import errno
+import time
 from pathlib import Path
 
+import httpx
+from sqlalchemy.pool import NullPool
+
+from app.config import Settings
+from app.db import make_engine, make_sessionmaker
 from app.library import files, manage
 from app.library.tags import read_tags
+from app.main import create_app
 from tests.conftest import png_bytes
 
 
@@ -391,3 +398,68 @@ def test_tidying_keeps_the_uploads_folder(tmp_path):
     (album / "cover.jpg").write_bytes(b"jpg")
     files.prune(album, root, keep=[root / "uploads"])
     assert sorted(p.name for p in root.rglob("*")) == ["uploads"]
+
+
+async def test_long_edits_hold_no_transaction_while_files_are_written(
+    client, admin, make_audio, run_jobs, settings, monkeypatch
+):
+    """The database closes a connection idle in a transaction (30 s in production): writing
+    the tags of many files must not keep one open meanwhile."""
+    make_audio("Al/01.flac", title="One", artist="A", album="Al", genre="Rock")
+    make_audio("Al/02.flac", title="Two", artist="A", album="Al", genre="Rock")
+    await scan(client, admin, run_jobs)
+    al = (await albums(client, admin))["Al"]
+
+    engine = make_engine(
+        Settings().database_url, settings.db_schema, statement_timeout=1, poolclass=NullPool
+    )
+    app = create_app(settings)
+    app.state.sessionmaker = make_sessionmaker(engine)
+    write_tags = manage.write_tags
+
+    def slow(path, values):
+        time.sleep(0.7)  # two of them: longer than the database lets a transaction idle
+        write_tags(path, values)
+
+    monkeypatch.setattr(manage, "write_tags", slow)
+    monkeypatch.setattr(manage, "REIMPORT_BATCH", 1)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t/api/v1") as c:
+            resp = await c.patch(f"/albums/{al['id']}", json={"title": "Renamed"}, headers=admin)
+            assert resp.status_code == 200, resp.text
+            genre = await c.patch(
+                "/genres", params={"genre": "Rock"}, json={"name": "Jazz"}, headers=admin
+            )
+            assert genre.status_code == 200, genre.text
+    finally:
+        await engine.dispose()
+    assert unchanged(await scan(client, admin, run_jobs))
+    renamed = (await albums(client, admin))["Renamed"]
+    assert renamed["id"] == al["id"] and renamed["genre"] == "Jazz"
+
+
+async def test_a_genre_change_imports_again_only_files_changed_on_the_disk(
+    client, admin, make_audio, run_jobs, settings, monkeypatch
+):
+    make_audio("Al/01.flac", title="One", artist="A", album="Al", genre="Rock")
+    changed = make_audio("Al/02.flac", title="Two", artist="A", album="Al", genre="Rock")
+    await scan(client, admin, run_jobs)
+    # Retitled by another program since the last scan.
+    make_audio("Al/02.flac", title="Two (live)", artist="A", album="Al", genre="Rock")
+    assert changed.exists()
+    imported = []
+    import_file = manage.import_file
+
+    async def counted(session, library, rel):
+        imported.append(rel)
+        return await import_file(session, library, rel)
+
+    monkeypatch.setattr(manage, "import_file", counted)
+    rock = {"genre": "Rock"}
+    resp = await client.patch("/genres", params=rock, json={"name": "Jazz"}, headers=admin)
+    assert resp.status_code == 200, resp.text
+    assert imported == ["Al/02.flac"]
+    titles = {t["title"] for t in (await client.get("/tracks", headers=admin)).json()["items"]}
+    assert titles == {"One", "Two (live)"}
+    assert unchanged(await scan(client, admin, run_jobs))

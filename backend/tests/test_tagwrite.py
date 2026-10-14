@@ -38,12 +38,17 @@ def audio_md5(path: Path) -> str:
     return out.stdout.strip()
 
 
-@pytest.mark.parametrize("name,codec", [("a.mp3", "libmp3lame"), ("a.flac", "flac")])
-def test_tags_go_into_a_copy_that_replaces_the_file(tmp_path, name, codec):
+@pytest.mark.parametrize(
+    "name,codec",
+    [("a.mp3", "libmp3lame"), ("a.flac", "flac"), ("a.ogg", "libvorbis"), ("a.m4a", "aac")],
+)
+def test_tags_that_would_move_the_audio_go_into_a_copy_that_replaces_the_file(
+    tmp_path, name, codec
+):
     path = make(tmp_path / name, codec, seconds=5)
     os.chmod(path, 0o640)
     before = path.stat()
-    write_tags(path, {"title": "x" * 5000, "genre": "Rock"})
+    write_tags(path, {"title": "x" * 50_000, "genre": "Rock"})
     after = path.stat()
     assert after.st_ino != before.st_ino  # replaced, not rewritten in place
     assert (after.st_mode, after.st_uid, after.st_gid) == (
@@ -53,6 +58,13 @@ def test_tags_go_into_a_copy_that_replaces_the_file(tmp_path, name, codec):
     )
     assert mutagen.File(path, easy=True)["genre"] == ["Rock"]
     assert sorted(p.name for p in tmp_path.iterdir()) == [name]  # no copy left
+
+    # Room was left: a change that fits it is written in place, without copying the file.
+    write_tags(path, {"title": "Short", "genre": "Jazz"})
+    if path.suffix in (".mp3", ".flac"):
+        assert path.stat().st_ino == after.st_ino
+    tags = mutagen.File(path, easy=True)
+    assert (tags["title"], tags["genre"]) == (["Short"], ["Jazz"])
 
 
 def test_a_file_with_hard_links_is_written_in_place(tmp_path):
@@ -73,23 +85,30 @@ def test_a_write_through_a_link_changes_the_file_it_points_to(tmp_path):
     assert mutagen.File(real, easy=True)["title"] == ["Through"]
 
 
+WRITER = """
+import sys, itertools
+from pathlib import Path
+from app.library.tagwrite import write_tags
+grow = sys.argv[2] == "grow"
+print("ready", flush=True)
+for n in itertools.count():
+    # Growing: each tag bigger than the last, no room left, the audio would move along.
+    # Fitting: tags that change but fit the room the file keeps for them.
+    title = "x" * (n + 1) * 20000 if grow else "abcdefgh"[n % 8] * (n % 50)
+    write_tags(Path(sys.argv[1]), {"title": title})
+"""
+
+
 @pytest.mark.parametrize("name,codec", [("a.mp3", "libmp3lame"), ("a.flac", "flac")])
-def test_killing_a_write_never_breaks_the_file(tmp_path, name, codec):
+@pytest.mark.parametrize("change", ["grow", "fit"])
+def test_killing_a_write_never_breaks_the_file(tmp_path, name, codec, change):
     path = make(tmp_path / name, codec, seconds=60)
+    write_tags(path, {"title": "first"})  # room for later changes
     music = audio_md5(path)
-    writer = (
-        "import sys, itertools\n"
-        "from pathlib import Path\n"
-        "from app.library.tagwrite import write_tags\n"
-        "print('ready', flush=True)\n"
-        "for n in itertools.count():\n"
-        # Each tag bigger than the last: no room left before the audio, which moves along.
-        "    write_tags(Path(sys.argv[1]), {'title': 'x' * (n + 1) * 20000})\n"
-    )
     rng = random.Random(1)
     for _ in range(8):
         proc = subprocess.Popen(
-            [sys.executable, "-c", writer, str(path)],
+            [sys.executable, "-c", WRITER, str(path), change],
             cwd=Path(__file__).resolve().parents[1],
             stdout=subprocess.PIPE,
         )

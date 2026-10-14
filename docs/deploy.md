@@ -82,6 +82,11 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         # Загрузки идут на сервер сразу, а не копятся в nginx.
         proxy_request_buffering off;
+        # Переименование жанра или исполнителя с тысячами треков переписывает теги каждого
+        # файла и может идти минуты: без этого nginx через 60 секунд ответил бы ошибкой,
+        # хотя сервер работу доделает.
+        proxy_read_timeout 15m;
+        proxy_send_timeout 15m;
     }
 }
 ```

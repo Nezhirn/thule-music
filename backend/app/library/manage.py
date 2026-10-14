@@ -17,7 +17,17 @@ from typing import Annotated, Self
 
 from fastapi import APIRouter, Form, Query, UploadFile, status
 from pydantic import Field, StringConstraints, model_validator
-from sqlalchemy import ColumnElement, Uuid, func, literal, select, update
+from sqlalchemy import (
+    ARRAY,
+    BigInteger,
+    ColumnElement,
+    Double,
+    Uuid,
+    func,
+    literal,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -235,6 +245,10 @@ async def _write_tags(path: Path, values: Values) -> None:
         raise ApiError(ErrorCode.tags_not_writable, f"Can't write tags to {exc}") from exc
 
 
+# Files imported again per transaction (see _reimport).
+REIMPORT_BATCH = 200
+
+
 async def _reimport(
     session: AsyncSession,
     settings: Settings,
@@ -249,7 +263,7 @@ async def _reimport(
     again, lyrics are looked up (unless the change doesn't touch what they are looked up
     by: title, artist, album), and transcodes made, for new audio."""
     imported = []
-    for rel in dict.fromkeys(rels):
+    for n, rel in enumerate(dict.fromkeys(rels), start=1):
         try:
             result = await import_file(session, settings.library_path, rel)
         except UnreadableAudio as exc:
@@ -258,6 +272,10 @@ async def _reimport(
             raise ApiError(ErrorCode.library_unavailable) from exc
         if result is not None:
             imported.append(result)
+        if n % REIMPORT_BATCH == 0:
+            # The files are written already: what is imported of them is kept as it goes,
+            # in transactions of a bounded size (a scan would import the rest).
+            await session.commit()
     await delete_orphans(session)
     album_ids = set(albums) | {i.album.id for i in imported}
     album_ids |= {i.previous_album_id for i in imported if i.previous_album_id is not None}
@@ -281,20 +299,60 @@ async def _retag(
     settings: Settings,
     tracks: list[Track],
     values: Callable[[Track], Values],
-) -> None:
+) -> set[uuid.UUID]:
     """Writes each track's tags. When a write fails, the files written before it are
     imported and committed, so the library still matches the folder, and the error is
-    raised."""
+    raised. Returns the tracks whose file was as last imported before it was written (the
+    others changed on the disk since)."""
     _writable(tracks)
+    # What was read stays usable; no transaction is held open while files are written, which
+    # may take minutes (the database closes one left idle).
+    await session.commit()
     done: list[str] = []
+    in_step: set[uuid.UUID] = set()
     try:
         for track in tracks:
-            await _write_tags(_path(settings, track), values(track))
+            path = _path(settings, track)
+            if await asyncio.to_thread(_stat, path) == (track.size, track.mtime):
+                in_step.add(track.id)
+            await _write_tags(path, values(track))
             done.append(track.path)
     except BaseException:
         await _reimport(session, settings, done)
         await session.commit()
         raise
+    return in_step
+
+
+def _stat(path: Path) -> tuple[int, float] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_size, st.st_mtime
+
+
+async def _restat(session: AsyncSession, settings: Settings, tracks: list[Track]) -> None:
+    """Records the tracks' files' new size and time, for tags the database already holds
+    (so that a scan finds nothing to do): one statement, not an import of each file."""
+    stats = await asyncio.to_thread(lambda: [_stat(_path(settings, t)) for t in tracks])
+    rows = [(t.id, st) for t, st in zip(tracks, stats, strict=True) if st is not None]
+    if not rows:
+        return
+    changed = (
+        func.unnest(
+            literal([i for i, _ in rows], ARRAY(Uuid)),
+            literal([st[0] for _, st in rows], ARRAY(BigInteger)),
+            literal([st[1] for _, st in rows], ARRAY(Double)),
+        )
+        .table_valued("id", "size", "mtime")
+        .render_derived()
+    )
+    await session.execute(
+        update(Track)
+        .where(Track.id == changed.c.id)
+        .values(size=changed.c.size, mtime=changed.c.mtime)
+    )
 
 
 def _album_folder(settings: Settings, tracks: list[Track], disc_no: int | None) -> Path:
@@ -872,14 +930,19 @@ async def _genre_out(session: AsyncSession, name: str) -> GenreOut:
 async def _set_genre(
     session: AsyncSession, settings: Settings, albums: list[Album], genre: str | None
 ) -> None:
-    """Writes the genre (None takes it off) into the tags of the albums' tracks."""
+    """Writes the genre (None takes it off) into the tags of the albums' tracks. The genre
+    is the album's, set here: of the tracks only their files' size and time change, so
+    those are all that is recorded, unless a file had changed on the disk before (that one
+    is imported again)."""
     changing = [a for a in albums if a.genre != genre]
     tracks = await _tracks(session, Track.album_id.in_([a.id for a in changing]))
-    await _retag(session, settings, tracks, lambda _: {"genre": genre})
+    in_step = await _retag(session, settings, tracks, lambda _: {"genre": genre})
     for album in changing:
         album.genre = genre
+    await _restat(session, settings, [t for t in tracks if t.id in in_step])
     await session.flush()
-    await _reimport(session, settings, [t.path for t in tracks], lyrics=False)
+    others = [t.path for t in tracks if t.id not in in_step]
+    await _reimport(session, settings, others, lyrics=False)
     await session.commit()
 
 

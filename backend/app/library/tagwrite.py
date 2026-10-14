@@ -8,7 +8,7 @@ import shutil
 import stat
 import threading
 import weakref
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -57,26 +57,55 @@ def write_tags(path: Path, values: Values) -> None:
     """Sets the given tags and leaves the others. Raises TagsNotWritable for formats it
     can't tag, and OSError when the file can't be written.
 
-    The file is often the only copy of the music, and writing tags may shift all of its
-    audio along, so the tags are written into a copy beside it that then replaces it: a
-    write cut short (the process killed, the power gone) leaves the file as it was. The
-    file is written in place only when a copy couldn't be just like it: another owner the
-    server can't give the copy, hard links that would no longer share it, a folder the
-    server can't write to, no room for a copy."""
+    The file is often the only copy of the music, so a write cut short (the process killed,
+    the power gone) must leave it whole. Tags that fit the room the file keeps for them
+    (padding) are written in place: MP3 and FLAC keep that room before the audio and take
+    it in one write, which a killed process can't cut. Otherwise the audio would have to
+    move along, so the tags go into a copy beside the file that then replaces it, with
+    room to spare for the next change. In place even then only when a copy couldn't be
+    just like the file: another owner the server can't give the copy, hard links that would
+    no longer share it, a folder the server can't write to, no room for a copy."""
     target = path.resolve()  # a link: the file it points to is the one changed
     with _lock(target):
+        if target.suffix.casefold() in IN_ONE_WRITE:
+            try:
+                _write(target, values, name=path.name, padding=_in_the_room)
+                return
+            except _WouldMove:
+                pass
         copy = _copy_beside(target)
         if copy is None:
-            _write(target, values, name=path.name)
+            _write(target, values, name=path.name, padding=_with_room)
             return
         try:
-            _write(copy, values, name=path.name)
+            _write(copy, values, name=path.name, padding=_with_room)
             _fsync(copy)
             os.replace(copy, target)
         except BaseException:
             copy.unlink(missing_ok=True)
             raise
         _fsync(target.parent)
+
+
+# Formats whose tags mutagen rewrites with one write when they fit their room: ID3 at the
+# start of an MP3, FLAC's metadata blocks. (Ogg pages and MP4 atoms take several.)
+IN_ONE_WRITE = frozenset({".mp3", ".flac"})
+# Room left for tags when a file is rewritten anyway, so later changes fit in place.
+ROOM = 16 * 1024
+
+
+class _WouldMove(Exception):
+    """The new tags don't fit: the audio would move along."""
+
+
+def _in_the_room(info: mutagen.PaddingInfo) -> int:
+    if info.padding < 0:
+        raise _WouldMove
+    return info.padding
+
+
+def _with_room(info: mutagen.PaddingInfo) -> int:
+    return max(info.padding, ROOM)
 
 
 # The copy a write goes to, beside the file: hidden (scans skip it) and with the file's
@@ -130,7 +159,13 @@ def _lock(path: Path) -> threading.Lock:
         return lock
 
 
-def _write(path: Path, values: Values, *, name: str) -> None:
+def _write(
+    path: Path,
+    values: Values,
+    *,
+    name: str,
+    padding: Callable[[mutagen.PaddingInfo], int],
+) -> None:
     try:
         audio = mutagen.File(path, easy=True)
         if not isinstance(audio, WRITABLE):
@@ -147,7 +182,7 @@ def _write(path: Path, values: Values, *, name: str) -> None:
                     del tags[key]
             else:
                 tags[key] = value
-        audio.save()
+        audio.save(padding=padding)
     except mutagen.MutagenError as exc:
         # mutagen wraps what went wrong with the file itself: told as such.
         if isinstance(exc.__context__, OSError):
