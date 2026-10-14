@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import make_url, text
 from sqlalchemy.pool import NullPool
 
-from app.cli import check_folders, load_settings, wait_for_database
+from app.cli import check_folders, load_settings, migrate, wait_for_database
 from app.config import Settings, get_settings
 from app.db import make_engine
 from tests.conftest import BACKEND_DIR, TEST_SCHEMA
@@ -100,3 +100,29 @@ def test_folders_the_server_cant_use(settings, tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="thule"):
         check_folders(settings)
     assert "uploads won't work" in caplog.text
+
+
+async def test_a_database_newer_than_the_code_is_named(migrated_schema, monkeypatch):
+    await drop_schema()
+    engine = make_engine(Settings().database_url, poolclass=NullPool)
+    async with engine.begin() as connection:
+        await connection.exec_driver_sql(f'CREATE SCHEMA "{SCHEMA}"')
+        await connection.exec_driver_sql(
+            f'CREATE TABLE "{SCHEMA}".alembic_version (version_num varchar(32) PRIMARY KEY)'
+        )
+        await connection.exec_driver_sql(
+            f"INSERT INTO \"{SCHEMA}\".alembic_version VALUES ('ffffffffffff')"
+        )
+    await engine.dispose()
+    monkeypatch.setenv("THULE_DB_SCHEMA", SCHEMA)
+    try:
+        with pytest.raises(SystemExit, match="newer version of Thule"):
+            migrate()
+    finally:
+        await drop_schema()
+
+
+def test_an_empty_music_folder_is_warned_about(settings, caplog):
+    with caplog.at_level(logging.WARNING, logger="thule"):
+        check_folders(settings)
+    assert "is empty: if the music is on a disk, is it mounted?" in caplog.text

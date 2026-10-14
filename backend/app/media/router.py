@@ -1,3 +1,4 @@
+import asyncio
 import enum
 import mimetypes
 import uuid
@@ -10,9 +11,10 @@ from sqlalchemy import select
 
 from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
+from app.jobs.queue import enqueue, enqueue_many
 from app.library.covers import COVER_SIZES, cover_file
 from app.library.importer import resolve_in_library
-from app.library.models import VARIANT_BITRATES, Cover, Track, TrackFile, Variant
+from app.library.models import VARIANT_BITRATES, Album, Cover, Track, TrackFile, Variant
 from app.media import signing
 from app.schemas import ApiModel
 
@@ -65,12 +67,21 @@ async def get_stream_url(
     track = await session.get(Track, track_id)
     if track is None:
         raise ApiError(ErrorCode.track_not_found)
-    if quality != Quality.original and not await session.scalar(
-        select(TrackFile.id).where(
-            TrackFile.track_id == track_id, TrackFile.variant == Variant(quality.value)
+    if quality != Quality.original:
+        variant = await session.scalar(
+            select(TrackFile).where(
+                TrackFile.track_id == track_id, TrackFile.variant == Variant(quality.value)
+            )
         )
-    ):
-        quality = Quality.original
+        if variant is None:
+            quality = Quality.original
+        elif not await asyncio.to_thread((settings.transcodes_path / variant.path).is_file):
+            # Its file lost (the data folder not restored with the database): made again.
+            await session.delete(variant)
+            key = f"transcode:{track_id}"
+            await enqueue(session, "transcode", {"track_id": str(track_id)}, dedupe_key=key)
+            await session.commit()
+            quality = Quality.original
     expires, sig = signing.sign(
         settings.secret_key, track_id, quality.value, settings.stream_url_ttl_seconds
     )
@@ -160,7 +171,16 @@ async def get_cover(
     if cover is None:
         raise ApiError(ErrorCode.cover_not_found)
     path = cover_file(settings.covers_path, cover, size)
-    if not path.is_file():
+    if not await asyncio.to_thread(path.is_file):
+        # Lost (a database restored without the data folder): the albums showing it choose
+        # it again from their files. A cover an admin chose is gone with the folder.
+        albums = await session.scalars(
+            select(Album.id).where(Album.cover_id == cover_id, ~Album.cover_custom)
+        )
+        await enqueue_many(
+            session, "album_cover", [({"album_id": str(a)}, f"cover:{a}") for a in albums]
+        )
+        await session.commit()
         raise ApiError(ErrorCode.cover_file_missing)
     return FileResponse(
         path,

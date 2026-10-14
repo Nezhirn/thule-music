@@ -2,6 +2,7 @@
 behind: old job rows, expired refresh tokens, unused covers, orphaned files."""
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -29,21 +30,53 @@ KEEP_FAILED_JOBS = timedelta(days=30)
 FILE_GRACE = timedelta(hours=1)
 
 
-def _sweep(directory: Path, keep: Callable[[str], bool]) -> int:
-    """Deletes the files under `directory` that `keep(relative path)` rejects."""
+# Files that no row knows of are removed only when that is the odd file, not most of them:
+# with the database empty, or another one (being restored, a wrong address), every file would
+# look unused, and the cover files are the only copy of covers admins chose and of avatars.
+SWEEP_LIMIT = 20
+
+
+def _sweep(directory: Path, keep: Callable[[str], bool], *, guard: bool) -> int:
+    """Deletes the files under `directory` that `keep(relative path)` rejects. With `guard`,
+    none when they are more than SWEEP_LIMIT and half of the files."""
     cutoff = time.time() - FILE_GRACE.total_seconds()
-    removed = 0
+    total, unused = 0, []
     for dirpath, _, filenames in os.walk(directory):
         for name in filenames:
+            total += 1
             full = Path(dirpath, name)
             if keep(full.relative_to(directory).as_posix()):
                 continue
             try:
                 if full.stat().st_mtime < cutoff:
-                    full.unlink()
-                    removed += 1
+                    unused.append(full)
             except OSError:
                 continue
+    if guard and len(unused) > SWEEP_LIMIT and len(unused) * 2 > total:
+        log.warning(
+            "housekeeping: %d of %d files in %s are unknown to the database; none removed "
+            "(is it the right database?)",
+            len(unused),
+            total,
+            directory,
+        )
+        return 0
+    removed = 0
+    for full in unused:
+        with contextlib.suppress(OSError):
+            full.unlink()
+            removed += 1
+    return removed
+
+
+def _remove_cover_files(covers_path: Path, hashes: set[str]) -> int:
+    """The files of covers whose rows were just deleted."""
+    removed = 0
+    for source_hash in hashes:
+        for full in (covers_path / source_hash[:2]).glob(f"{source_hash}*.jpg"):
+            with contextlib.suppress(OSError):
+                full.unlink()
+                removed += 1
     return removed
 
 
@@ -78,31 +111,42 @@ async def housekeeping(ctx: JobContext, payload: dict[str, Any]) -> None:
         )
         # Waits for imports that may be about to reference an existing cover (store_cover).
         await session.execute(select(func.pg_advisory_xact_lock(COVERS_LOCK)))
-        covers = await session.execute(
-            delete(Cover).where(
-                ~exists().where(Album.cover_id == Cover.id),
-                ~exists().where(Track.cover_id == Cover.id),
-                ~exists().where(Artist.cover_id == Cover.id),
-                ~exists().where(User.avatar_id == Cover.id),
+        unused = set(
+            await session.scalars(
+                delete(Cover)
+                .where(
+                    ~exists().where(Album.cover_id == Cover.id),
+                    ~exists().where(Track.cover_id == Cover.id),
+                    ~exists().where(Artist.cover_id == Cover.id),
+                    ~exists().where(User.avatar_id == Cover.id),
+                )
+                .returning(Cover.source_hash)
             )
         )
         await session.commit()
         transcodes = set(await session.scalars(select(TrackFile.path)))
         hashes = set(await session.scalars(select(Cover.source_hash)))
+        any_tracks = await session.scalar(select(exists().where(Track.id.is_not(None))))
 
     settings = ctx.settings
-    transcode_files = await asyncio.to_thread(
-        _sweep, settings.transcodes_path, transcodes.__contains__
-    )
-    cover_files = await asyncio.to_thread(
-        _sweep, settings.covers_path, lambda rel: _cover_hash(rel) in hashes
-    )
+    cover_files = await asyncio.to_thread(_remove_cover_files, settings.covers_path, unused)
+    # Transcodes can be made again: they go unless the database has no tracks at all.
+    if any_tracks:
+        transcode_files = await asyncio.to_thread(
+            _sweep, settings.transcodes_path, transcodes.__contains__, guard=False
+        )
+    else:
+        transcode_files = 0
+    if hashes:
+        cover_files += await asyncio.to_thread(
+            _sweep, settings.covers_path, lambda rel: _cover_hash(rel) in hashes, guard=True
+        )
     log.info(
         "housekeeping: %d jobs, %d refresh tokens, %d covers, %d transcode files, "
         "%d cover files removed",
         jobs.rowcount,  # type: ignore[attr-defined]
         tokens.rowcount,  # type: ignore[attr-defined]
-        covers.rowcount,  # type: ignore[attr-defined]
+        len(unused),
         transcode_files,
         cover_files,
     )

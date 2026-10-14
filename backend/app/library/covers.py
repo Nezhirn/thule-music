@@ -123,12 +123,24 @@ def _render(data: bytes, covers_path: Path, source_hash: str) -> tuple[int, int,
     return image.width, image.height, compute_palette(image)
 
 
+def _rendered(covers_path: Path, source_hash: str) -> bool:
+    out_dir = covers_path / source_hash[:2]
+    names = [f"{source_hash}.jpg", *(f"{source_hash}_{size}.jpg" for size in COVER_SIZES)]
+    return all((out_dir / name).is_file() for name in names)
+
+
 async def store_cover(session: AsyncSession, covers_path: Path, data: bytes) -> Cover | None:
     """Returns the Cover for these image bytes, creating it if new. None if not an image."""
     await session.execute(select(func.pg_advisory_xact_lock_shared(COVERS_LOCK)))
     source_hash = hashlib.sha256(data).hexdigest()
     existing = await session.scalar(select(Cover).where(Cover.source_hash == source_hash))
     if existing is not None:
+        # Its files lost (a database restored without the data folder): made again.
+        if not await asyncio.to_thread(_rendered, covers_path, source_hash):
+            try:
+                await asyncio.to_thread(_render, data, covers_path, source_hash)
+            except (UnidentifiedImageError, DecompressionBombError, OSError):
+                return None
         return existing
     try:
         width, height, palette = await asyncio.to_thread(_render, data, covers_path, source_hash)

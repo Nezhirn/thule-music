@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 from datetime import timedelta
 
@@ -6,6 +7,7 @@ from sqlalchemy import select
 
 from app.auth.models import RefreshToken
 from app.db import utcnow
+from app.jobs import housekeeping as housekeeping_module
 from app.jobs.housekeeping import housekeeping, schedule_housekeeping
 from app.jobs.models import Job, JobStatus
 from app.library.models import Cover, TrackFile
@@ -121,3 +123,66 @@ async def test_housekeeping_is_scheduled_once_per_interval(job_ctx, sessionmaker
         )
         await session.commit()
     assert await schedule_housekeeping(job_ctx) is True
+
+
+def stray_files(settings, count: int) -> list:
+    made = []
+    for n in range(count):
+        for directory, name in [
+            (settings.covers_path / "ab", f"ab{n:062x}_64.jpg"),
+            (settings.transcodes_path / "cd", f"cd{n:030x}_high.opus"),
+        ]:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / name).write_bytes(b"x")
+            age(directory / name, 2)
+            made.append(directory / name)
+    return made
+
+
+async def test_an_empty_database_doesnt_take_every_file_for_unused(job_ctx, settings):
+    """Started on an empty database (one being restored, a wrong address): the covers and
+    transcodes on disk may be the restored database's."""
+    files = stray_files(settings, 30)
+    await housekeeping(job_ctx, {})
+    assert all(f.exists() for f in files)
+
+
+async def test_unknown_cover_files_go_unless_they_are_most_of_them(
+    client, user, job_ctx, settings, monkeypatch
+):
+    await client.put(
+        "/auth/me/avatar", files={"file": ("me.png", png_bytes((5, 5, 5)))}, headers=user
+    )
+    for path in settings.covers_path.rglob("*.jpg"):
+        age(path, 2)
+    covers = [f for f in stray_files(settings, 30) if f.suffix == ".jpg"]
+    await housekeeping(job_ctx, {})
+    assert all(f.exists() for f in covers)  # 30 unknown of 34: the wrong database, maybe
+
+    monkeypatch.setattr(housekeeping_module, "SWEEP_LIMIT", 100)
+    await housekeeping(job_ctx, {})
+    assert not any(f.exists() for f in covers)
+    assert len(list(settings.covers_path.rglob("*.jpg"))) == 4  # the avatar's
+
+
+async def test_lost_cover_and_transcode_files_are_made_again(
+    client, admin, make_audio, run_jobs, settings, sessionmaker
+):
+    """A database restored without the data folder: covers and transcodes come back as they
+    are next asked for."""
+    make_audio("a/1.mp3", title="T", artist="A", album="X", cover=(9, 90, 9))
+    await client.post("/library/scan", headers=admin)
+    await run_jobs()
+    shutil.rmtree(settings.covers_path)
+    shutil.rmtree(settings.transcodes_path)
+    track = (await client.get("/tracks", headers=admin)).json()["items"][0]
+
+    signed = (await client.get(f"/tracks/{track['id']}/stream-url", headers=admin)).json()
+    assert signed["quality"] == "original"  # until the transcode is made again
+    album = (await client.get("/albums", headers=admin)).json()["items"][0]
+    cover = f"/covers/{album['cover_id']}?size=300"
+    assert (await client.get(cover)).json()["code"] == "cover_file_missing"
+    await run_jobs()
+    signed = (await client.get(f"/tracks/{track['id']}/stream-url", headers=admin)).json()
+    assert signed["quality"] == "high"
+    assert (await client.get(cover)).status_code == 200

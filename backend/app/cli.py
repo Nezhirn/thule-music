@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import Settings, get_settings
 from app.db import make_engine
+from app.library.importer import library_is_empty
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATABASE_WAIT_SECONDS = 60
@@ -74,8 +75,20 @@ def wait_for_database(settings: Settings, timeout: float = DATABASE_WAIT_SECONDS
 
 def migrate() -> None:
     # A process of its own: Alembic's env.py runs its own event loop and logging setup.
-    result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=BACKEND_DIR)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=BACKEND_DIR,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    sys.stderr.write(result.stderr)
     if result.returncode:
+        if "Can't locate revision" in result.stderr:
+            raise SystemExit(
+                "The database was brought up to date by a newer version of Thule, and this "
+                "one can't run on it. Start the newer version again, or restore the backup "
+                "made before the update (see docs/deploy.md)."
+            )
         raise SystemExit("Migrating the database failed (see above)")
 
 
@@ -96,6 +109,12 @@ def check_folders(settings: Settings) -> None:
     library = settings.library_path
     if not library.is_dir():
         raise SystemExit(f"The music library folder {library} doesn't exist")
+    if library_is_empty(library):
+        log.warning(
+            "The music library folder %s is empty: if the music is on a disk, is it mounted? "
+            "(Scans keep the library until it is.)",
+            library,
+        )
     uploads = settings.uploads_path if settings.uploads_path.is_dir() else library
     if not os.access(uploads, os.W_OK):
         log.warning(
