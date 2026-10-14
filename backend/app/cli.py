@@ -3,6 +3,7 @@
     thule serve     the API and the web app
     thule worker    background jobs
     thule migrate   bring the database schema up to date and exit
+    thule health    whether the process of this container works (Docker's HEALTHCHECK)
 
 `serve` and `worker` get ready first, so either may start first and the database may still be
 starting up: they wait for the database, bring its schema up to date (one process at a time,
@@ -200,7 +201,16 @@ def main(argv: list[str] | None = None) -> None:
         "unlock", help="let a user sign in again at once after too many failed attempts"
     )
     unlock.add_argument("username")
+    check = commands.add_parser(
+        "health", help="whether this container's server or worker works (exit status 0)"
+    )
+    check.add_argument("role", nargs="?", choices=["server", "worker"])
+    check.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
+    if args.command == "health":
+        from app.health import health
+
+        raise SystemExit(health(args.role, args.port))
     # In a container this is process 1, which the kernel doesn't stop on SIGTERM unless it
     # asks to be: `docker stop` while waiting for the database would wait for the kill.
     # Uvicorn and the worker put their own handlers in place once running.

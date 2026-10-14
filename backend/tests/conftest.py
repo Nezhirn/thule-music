@@ -76,7 +76,8 @@ async def engine(migrated_schema: str) -> AsyncIterator[AsyncEngine]:
 @pytest.fixture
 async def sessionmaker(engine: AsyncEngine):
     async with engine.begin() as conn:
-        tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+        # Qualified: never the tables of another schema on the search path.
+        tables = ", ".join(f'"{TEST_SCHEMA}"."{t.name}"' for t in Base.metadata.sorted_tables)
         await conn.execute(text(f"TRUNCATE {tables} CASCADE"))
     return make_sessionmaker(engine)
 

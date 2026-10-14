@@ -14,6 +14,10 @@ const LIBRARY = fileURLToPath(new URL("../.e2e/library/", import.meta.url));
 const card = (page: Page, name: string) => page.getByRole("region", { name });
 const tabs = (page: Page) => page.getByRole("navigation", { name: "Administration sections" });
 
+// In order, each on what the one before left (an uploaded album, edited files); one failing
+// skips the rest rather than have them fail for it.
+test.describe.configure({ mode: "serial" });
+
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await signIn(page, ADMIN);
@@ -40,6 +44,10 @@ test("the library's numbers, and a scan that finds nothing new", async ({ page }
 
   await scanning.getByRole("button", { name: "Scan the library" }).click();
   await expect(scanning.getByText("nothing changed · 17 audio files in the folder")).toBeVisible();
+  // Nothing kept for want of its files.
+  await expect(scanning.getByText(/wasn't found in the music folder|couldn't be read/)).toHaveCount(
+    0,
+  );
   await expect(
     page.getByRole("status").filter({ hasText: "The library is up to date" }),
   ).toHaveText("The library is up to date: nothing changed.");
@@ -283,7 +291,14 @@ test("lyrics and covers corrected by hand, and given up again", async ({ page },
 async function scanned(baseURL: string) {
   const api = await login(baseURL);
   const { data: started } = await api.POST("/api/v1/library/scan");
-  let found: { added: number; updated: number; moved: number; removed: number } | null = null;
+  let found: {
+    added: number;
+    updated: number;
+    moved: number;
+    removed: number;
+    missing: number;
+    unreadable: number;
+  } | null = null;
   await expect
     .poll(
       async () => {
@@ -417,6 +432,9 @@ test("albums, tracks and artists managed in the files: a scan then finds nothing
     updated: 0,
     moved: 0,
     removed: 0,
+    // No file the library lists is gone from the folder (they'd be kept, and named).
+    missing: 0,
+    unreadable: 0,
   });
 });
 
@@ -554,6 +572,9 @@ test("artists and genres managed in the files: a scan then finds nothing to do",
     updated: 0,
     moved: 0,
     removed: 0,
+    // No file the library lists is gone from the folder (they'd be kept, and named).
+    missing: 0,
+    unreadable: 0,
   });
 });
 

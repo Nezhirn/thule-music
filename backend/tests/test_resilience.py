@@ -6,7 +6,7 @@ import io
 import httpx
 import pytest
 from PIL import Image
-from sqlalchemy import text
+from sqlalchemy import make_url, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
@@ -77,6 +77,26 @@ async def test_a_busy_pool_answers_503_rather_than_hang(settings):
         assert resp.status_code == 503
         assert resp.json()["code"] == "service_unavailable"
         assert resp.headers["retry-after"] == "5"
+    finally:
+        await engine.dispose()
+
+
+async def test_a_database_gone_answers_503_and_the_health_check_says_so(settings):
+    # Nothing listens there: the database stopped, or its host is down.
+    url = make_url(Settings().database_url).set(host="127.0.0.1", port=1)
+    engine = make_engine(url.render_as_string(hide_password=False), settings.db_schema)
+    app = create_app(settings)
+    app.state.sessionmaker = make_sessionmaker(engine)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            started = asyncio.get_running_loop().time()
+            health = await c.get("/api/v1/health")
+            assert asyncio.get_running_loop().time() - started < 5
+            # Any request needing the database answers the same, at once: clients wait and retry.
+            assert (await c.get("/api/v1/auth/setup")).status_code == 503
+        assert health.status_code == 503
+        assert health.json()["code"] == "service_unavailable"
     finally:
         await engine.dispose()
 

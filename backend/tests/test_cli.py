@@ -1,11 +1,16 @@
 """Getting the server ready in production: settings, the database, migrations, folders."""
 
 import asyncio
+import http.server
 import io
 import logging
+import os
+import socket
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 
 import pytest
 from sqlalchemy import make_url, text
@@ -22,6 +27,8 @@ from app.cli import (
 )
 from app.config import Settings, get_settings
 from app.db import make_engine
+from app.health import health
+from app.jobs.worker import keep_alive
 from tests.conftest import BACKEND_DIR, TEST_SCHEMA
 
 SCHEMA = f"{TEST_SCHEMA}_migrations"
@@ -163,3 +170,66 @@ def test_a_new_password_comes_from_standard_input(monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO("short\n"))
     with pytest.raises(SystemExit, match="at least 8"):
         read_password()
+
+
+def _serve(status: int) -> tuple[int, Callable[[], None]]:
+    """A server answering /api/v1/health with `status`, on a free port."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(status if self.path == "/api/v1/health" else 404)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server.server_address[1], server.shutdown
+
+
+def test_the_server_is_healthy_while_it_answers_its_health_check(capsys):
+    port, stop = _serve(200)
+    try:
+        assert health("server", port) == 0
+    finally:
+        stop()
+    # The database away: /health answers 503.
+    port, stop = _serve(503)
+    try:
+        assert health("server", port) == 1
+    finally:
+        stop()
+    assert "503" in capsys.readouterr().err
+    # Not answering at all.
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        free = unused.getsockname()[1]
+    assert health("server", free) == 1
+
+
+def test_the_worker_is_healthy_while_it_reaches_the_database(tmp_path, monkeypatch, capsys):
+    alive = tmp_path / "alive"
+    monkeypatch.setattr("app.health.ALIVE_FILE", alive)
+    assert health("worker") == 1
+    assert "hasn't reached the database yet" in capsys.readouterr().err
+    alive.touch()
+    assert health("worker") == 0
+    old = time.time() - 300
+    os.utime(alive, (old, old))
+    assert health("worker") == 1
+    assert "hasn't reached the database for 30" in capsys.readouterr().err
+
+
+async def test_the_worker_says_it_is_alive_while_the_database_answers(
+    job_ctx, tmp_path, monkeypatch
+):
+    alive = tmp_path / "alive"
+    monkeypatch.setattr("app.jobs.worker.ALIVE_FILE", alive)
+    stop = asyncio.Event()
+    running = asyncio.create_task(keep_alive(job_ctx, stop))
+    await asyncio.sleep(0.2)
+    stop.set()
+    await running
+    assert alive.exists()

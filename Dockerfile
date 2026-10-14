@@ -38,5 +38,10 @@ ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     PUID=1000 PGID=1000
 WORKDIR /app
 EXPOSE 8000
+# The server answering its /health (which asks the database), or the worker reaching the
+# database: `docker ps` says "unhealthy" for a server that hangs. The role is told by the
+# container's command. Start-up migrates the database first: failures then don't count.
+HEALTHCHECK --interval=30s --timeout=15s --start-period=2m --retries=3 \
+    CMD ["python", "-m", "app.health"]
 ENTRYPOINT ["entrypoint"]
 CMD ["thule", "serve"]

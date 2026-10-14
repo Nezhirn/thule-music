@@ -17,9 +17,16 @@ x-thule: &thule
     - ${SERVER_DATA:-./data}:/data
   depends_on:
     postgres:
-      condition: service_started
+      condition: service_healthy
       required: false
   restart: unless-stopped
+  # Health: the image's HEALTHCHECK (the server's /health, the worker reaching the database).
+  # Logs kept to 3 files of 10 MB each, per container.
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
 
 services:
   server:
@@ -44,4 +51,11 @@ services:
       POSTGRES_DB: thule
     volumes:
       - ${POSTGRES_DATA:-./postgres}:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "thule", "-d", "thule"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
     restart: unless-stopped

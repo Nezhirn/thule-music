@@ -5,10 +5,18 @@ import { defineConfig, devices } from "@playwright/test";
 // from an empty database, so the projects run in order: first-run tests see
 // a server without accounts, the setup project creates the admin and imports the library,
 // then the rest run against that, the administration tests last.
-const PORT = 8100;
+// Another schema and port let a second checkout run its tests against the same database.
+const PORT = Number(process.env.THULE_E2E_PORT ?? 8100);
+const SCHEMA = process.env.THULE_E2E_SCHEMA ?? "thule_e2e";
 
 export default defineConfig({
   testDir: "e2e",
+  // A test may wait on the worker (a scan, an import, transcodes): the default 30 s cut the
+  // setup's own 60 s wait short.
+  timeout: 90_000,
+  // No retries: the tests share one database and build on what the earlier ones did, so a
+  // second try would start from what the failed one left. A failure is looked at instead.
+  retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     ...devices["Desktop Chrome"],
@@ -33,7 +41,7 @@ export default defineConfig({
   webServer: {
     command: "node e2e/stack/start.mjs",
     url: `http://127.0.0.1:${PORT}/api/v1/health`,
-    env: { THULE_E2E_SCHEMA: "thule_e2e", THULE_E2E_API_PORT: String(PORT) },
+    env: { THULE_E2E_SCHEMA: SCHEMA, THULE_E2E_API_PORT: String(PORT) },
     timeout: 180_000,
   },
 });

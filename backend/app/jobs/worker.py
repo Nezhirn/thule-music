@@ -8,9 +8,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
+from sqlalchemy import text
 
 from app.config import Settings, get_settings
 from app.db import make_engine, make_sessionmaker
+from app.jobs.alive import ALIVE_EVERY, ALIVE_FILE
 from app.jobs.context import JobContext
 from app.jobs.housekeeping import housekeeping, schedule_housekeeping
 from app.jobs.models import Job
@@ -143,6 +145,24 @@ async def drain(ctx: JobContext, max_jobs: int = 10_000) -> int:
     return count
 
 
+async def keep_alive(ctx: JobContext, stop: asyncio.Event) -> None:
+    """Says the worker works, as long as it reaches the database: its jobs can be long, and
+    the queue loops are quiet while they run."""
+    while not stop.is_set():
+        try:
+            async with ctx.sessionmaker() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception as exc:
+            log.warning("worker: the database is unreachable: %r", exc)
+        else:
+            try:
+                ALIVE_FILE.touch()
+            except OSError as exc:
+                log.warning("worker: can't mark itself alive in %s: %s", ALIVE_FILE, exc)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), ALIVE_EVERY.total_seconds())
+
+
 async def main(settings: Settings, concurrency: int = 2) -> None:
     engine = make_engine(
         settings.database_url,
@@ -190,7 +210,12 @@ async def main(settings: Settings, concurrency: int = 2) -> None:
                     await asyncio.wait_for(stop.wait(), 600)
 
         log.info("worker started (concurrency=%d)", concurrency)
-        await asyncio.gather(loop_scheduler(), *(loop_worker(i) for i in range(concurrency)))
+        await asyncio.gather(
+            keep_alive(ctx, stop),
+            loop_scheduler(),
+            *(loop_worker(i) for i in range(concurrency)),
+        )
+        ALIVE_FILE.unlink(missing_ok=True)
     await engine.dispose()
     log.info("worker stopped")
 
