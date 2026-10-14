@@ -25,7 +25,9 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+# Closed when the endpoint is done, before the response is sent: a file streamed to a slow
+# listener must not hold a connection of the pool (and a transaction) for minutes.
+SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 
 
 def _unauthorized(code: ErrorCode, detail: str | None = None) -> ApiError:

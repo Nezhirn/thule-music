@@ -1,5 +1,6 @@
 import math
 import uuid
+from asyncio import to_thread
 from datetime import timedelta
 
 from fastapi import APIRouter, UploadFile, status
@@ -107,7 +108,7 @@ async def register(body: RegisterIn, session: SessionDep, actor: OptionalUser) -
     user = User(
         username=body.username,
         display_name=body.display_name,
-        password_hash=hash_password(body.password),
+        password_hash=await to_thread(hash_password, body.password),
         role=role,
     )
     session.add(user)
@@ -135,7 +136,7 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
         )
 
     user = await session.scalar(select(User).where(User.username == body.username))
-    if user is None or not verify_password(user.password_hash, body.password):
+    if user is None or not await to_thread(verify_password, user.password_hash, body.password):
         session.add(LoginFailure(username=body.username))
         await session.commit()
         raise ApiError(ErrorCode.invalid_credentials)
@@ -209,9 +210,9 @@ async def change_password(
 ) -> TokenPair:
     """Signs out every other session (their refresh tokens are revoked; access tokens
     expire within minutes) and returns fresh tokens for this one."""
-    if not verify_password(user.password_hash, body.current_password):
+    if not await to_thread(verify_password, user.password_hash, body.current_password):
         raise ApiError(ErrorCode.wrong_password)
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await to_thread(hash_password, body.new_password)
     await _revoke_sessions(session, user.id)
     return await _issue_tokens(session, settings, user)
 
@@ -286,7 +287,7 @@ async def reset_password(
 ) -> None:
     """Sets a new password for a user and signs out all their sessions."""
     user = await _user_by_name(session, username)
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await to_thread(hash_password, body.new_password)
     await _revoke_sessions(session, user.id)
     await session.commit()
 

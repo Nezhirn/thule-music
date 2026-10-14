@@ -4,6 +4,9 @@
 message for logs and developers (for validation errors, the list of failed fields)."""
 
 import enum
+import errno
+import logging
+import socket
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
@@ -11,7 +14,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.utils import is_body_allowed_for_status_code
 from pydantic import BaseModel
+from sqlalchemy import exc as sa_exc
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+log = logging.getLogger(__name__)
 
 
 class ErrorCode(enum.StrEnum):
@@ -22,6 +28,11 @@ class ErrorCode(enum.StrEnum):
     method_not_allowed = "method_not_allowed"
     validation_error = "validation_error"
     http_error = "http_error"
+    # the server: a bug (500), the database unreachable or too busy for now (503), a change
+    # that clashed with another made at the same moment (409)
+    internal_error = "internal_error"
+    service_unavailable = "service_unavailable"
+    conflict = "conflict"
     # auth
     not_authenticated = "not_authenticated"
     invalid_token = "invalid_token"
@@ -67,6 +78,9 @@ class ErrorCode(enum.StrEnum):
 
 # Status code and default message of each error raised by our code.
 _ERRORS: dict[ErrorCode, tuple[int, str]] = {
+    ErrorCode.internal_error: (500, "Something went wrong on the server"),
+    ErrorCode.service_unavailable: (503, "The database can't be reached right now"),
+    ErrorCode.conflict: (409, "Changed by another request at the same moment"),
     ErrorCode.not_authenticated: (401, "Not authenticated"),
     ErrorCode.invalid_token: (401, "Invalid or expired token"),
     ErrorCode.admin_only: (403, "Admin only"),
@@ -160,6 +174,58 @@ async def _validation_error(request: Request, exc: Exception) -> Response:
     )
 
 
+def _error(code: ErrorCode, headers: dict[str, str] | None = None) -> JSONResponse:
+    status_code, message = _ERRORS[code]
+    return JSONResponse({"code": code, "detail": message}, status_code=status_code, headers=headers)
+
+
+# Database trouble that passes: the database restarting, the network to it gone, every
+# connection of the pool busy, a statement cancelled after its timeout. Clients may retry.
+_DB_UNAVAILABLE = (
+    "57014",  # query_canceled (statement_timeout)
+    "57P01",  # admin_shutdown
+    "57P02",  # crash_shutdown
+    "57P03",  # cannot_connect_now
+    "53300",  # too_many_connections
+    "25P03",  # idle_in_transaction_session_timeout
+)
+
+
+_NETWORK_ERRNOS = {errno.ECONNREFUSED, errno.EHOSTUNREACH, errno.ENETUNREACH, errno.ETIMEDOUT}
+
+
+def _unavailable(exc: BaseException) -> bool:
+    if isinstance(exc, (sa_exc.TimeoutError, TimeoutError, ConnectionError, socket.gaierror)):
+        return True
+    if isinstance(exc, sa_exc.DBAPIError):
+        if exc.connection_invalidated:
+            return True
+        sqlstate = getattr(exc.orig, "sqlstate", None) or ""
+        return sqlstate in _DB_UNAVAILABLE or sqlstate.startswith("08")  # connection_exception
+    return isinstance(exc, OSError) and exc.errno in _NETWORK_ERRNOS
+
+
+async def _expected_error(request: Request, exc: Exception) -> Response:
+    """Database and network errors: most pass (503), a clash is 409, others are bugs."""
+    if _unavailable(exc):
+        log.warning("%s %s: database unavailable: %r", request.method, request.url.path, exc)
+        return _error(ErrorCode.service_unavailable, {"Retry-After": "5"})
+    if isinstance(exc, sa_exc.IntegrityError):
+        log.warning("%s %s: %s", request.method, request.url.path, exc.orig)
+        return _error(ErrorCode.conflict)
+    log.error("%s %s failed", request.method, request.url.path, exc_info=exc)
+    return _error(ErrorCode.internal_error)
+
+
+async def _server_error(request: Request, exc: Exception) -> Response:
+    # A bug. The server logs it with its traceback after this answer.
+    return _error(ErrorCode.internal_error)
+
+
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(sa_exc.SQLAlchemyError, _expected_error)
+    app.add_exception_handler(OSError, _expected_error)
+    # Any other exception: still an error of the API's shape, not plain text.
+    app.add_exception_handler(Exception, _server_error)

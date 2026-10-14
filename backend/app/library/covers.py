@@ -31,9 +31,12 @@ MIN_VIBRANT_SHARE = 0.02
 
 
 def cover_file(covers_path: Path, cover: Cover, size: int | None) -> Path:
-    prefix = cover.source_hash[:2]
-    name = f"{cover.source_hash}.jpg" if size is None else f"{cover.source_hash}_{size}.jpg"
-    return covers_path / prefix / name
+    return cover_path(covers_path, cover.source_hash, size)
+
+
+def cover_path(covers_path: Path, source_hash: str, size: int | None) -> Path:
+    name = f"{source_hash}.jpg" if size is None else f"{source_hash}_{size}.jpg"
+    return covers_path / source_hash[:2] / name
 
 
 def _hex(rgb: RGB) -> str:
@@ -102,9 +105,27 @@ def compute_palette(image: Image.Image) -> dict[str, Any]:
     }
 
 
+# Pixels an image may have: decoding one takes 3 bytes a pixel and more to resize it, and
+# a small PNG can be 12000×12000. A JPEG is decoded at a reduced scale (draft), so a large
+# scan of album art is fine. (Pillow alone only warns up to twice its own limit.)
+MAX_PIXELS = 40_000_000
+# The largest side a cover is kept at: thumbnails are at most 600, the full size is for
+# large screens.
+MAX_SIDE = 2000
+
+
+def _open(data: bytes) -> Image.Image:
+    image = Image.open(io.BytesIO(data))
+    image.draft("RGB", (MAX_SIDE, MAX_SIDE))  # JPEG: decode at 1/2, 1/4 or 1/8 if larger
+    if image.width * image.height > MAX_PIXELS:
+        image.close()
+        raise DecompressionBombError(f"{image.width}×{image.height} pixels")
+    return image
+
+
 def is_image(data: bytes) -> bool:
     try:
-        with Image.open(io.BytesIO(data)) as image:
+        with _open(data) as image:
             image.verify()
     except (UnidentifiedImageError, DecompressionBombError, OSError, SyntaxError):
         return False
@@ -112,8 +133,9 @@ def is_image(data: bytes) -> bool:
 
 
 def _render(data: bytes, covers_path: Path, source_hash: str) -> tuple[int, int, dict[str, Any]]:
-    with Image.open(io.BytesIO(data)) as raw:
+    with _open(data) as raw:
         image = ImageOps.exif_transpose(raw).convert("RGB")
+    image.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
     out_dir = covers_path / source_hash[:2]
     out_dir.mkdir(parents=True, exist_ok=True)
     image.save(out_dir / f"{source_hash}.jpg", "JPEG", quality=92)

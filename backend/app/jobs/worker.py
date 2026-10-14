@@ -76,7 +76,13 @@ async def drain(ctx: JobContext, max_jobs: int = 10_000) -> int:
 
 
 async def main(settings: Settings, concurrency: int = 2) -> None:
-    engine = make_engine(settings.database_url, settings.db_schema, pool_size=concurrency + 1)
+    engine = make_engine(
+        settings.database_url,
+        settings.db_schema,
+        pool_size=concurrency + 2,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

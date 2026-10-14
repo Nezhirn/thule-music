@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import DateTime, MetaData
 from sqlalchemy.ext.asyncio import (
@@ -32,11 +33,33 @@ class UUIDPk:
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
 
-def make_engine(url: str, schema: str = "public", **kwargs) -> AsyncEngine:
+# Connecting to a database that doesn't answer gives up after this long.
+CONNECT_TIMEOUT_SECONDS = 10
+
+
+def make_engine(
+    url: str,
+    schema: str = "public",
+    *,
+    statement_timeout: float | None = None,
+    **kwargs: Any,
+) -> AsyncEngine:
+    """With `statement_timeout` (seconds), a statement running longer is cancelled by the
+    server, a connection left idle inside a transaction longer is closed by it, and one
+    that doesn't answer for longer (a network gone silent) is given up by the client:
+    nothing waits for ever. Without it (migrations, the worker's long jobs) only connecting
+    is limited."""
     search_path = schema if schema == "public" else f"{schema},public"
-    return create_async_engine(
-        url, connect_args={"server_settings": {"search_path": search_path}}, **kwargs
-    )
+    server_settings = {"search_path": search_path}
+    connect_args: dict[str, Any] = {
+        "server_settings": server_settings,
+        "timeout": CONNECT_TIMEOUT_SECONDS,
+    }
+    if statement_timeout is not None:
+        ms = str(int(statement_timeout * 1000))
+        server_settings |= {"statement_timeout": ms, "idle_in_transaction_session_timeout": ms}
+        connect_args["command_timeout"] = statement_timeout + 5
+    return create_async_engine(url, connect_args=connect_args, **kwargs)
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

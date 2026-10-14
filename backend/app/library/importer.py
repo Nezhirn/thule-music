@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
 import posixpath
@@ -50,7 +51,13 @@ def resolve_in_library(library_root: Path, rel_path: str) -> Path:
     rel = PurePosixPath(rel_path)
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"Path escapes library root: {rel_path}")
-    return library_root.resolve() / rel
+    return _resolved(library_root) / rel
+
+
+@functools.lru_cache(maxsize=8)
+def _resolved(root: Path) -> Path:
+    # Once: resolving touches the disk, and the library may be on a slow network share.
+    return root.resolve()
 
 
 Stat = tuple[int, float]

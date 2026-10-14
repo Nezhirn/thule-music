@@ -21,4 +21,5 @@ def sign(secret: str, track_id: uuid.UUID, quality: str, ttl_seconds: int) -> tu
 def verify(secret: str, track_id: uuid.UUID, quality: str, expires: int, sig: str) -> bool:
     if expires < time.time():
         return False
-    return hmac.compare_digest(_digest(secret, track_id, quality, expires), sig)
+    # Bytes: compare_digest refuses str with non-ASCII characters, which a URL may carry.
+    return hmac.compare_digest(_digest(secret, track_id, quality, expires).encode(), sig.encode())

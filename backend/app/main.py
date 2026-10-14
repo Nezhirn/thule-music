@@ -32,7 +32,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = make_engine(settings.database_url, settings.db_schema, pool_pre_ping=True)
+        engine = make_engine(
+            settings.database_url,
+            settings.db_schema,
+            statement_timeout=settings.db_statement_timeout_seconds,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout_seconds,
+            # A connection the network or the database dropped meanwhile is noticed before
+            # use; none is kept so long that a firewall forgot it.
+            pool_pre_ping=True,
+            pool_recycle=1800,
+        )
         app.state.engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         yield

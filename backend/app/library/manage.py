@@ -533,6 +533,9 @@ async def _upload(
     if not can_write(Path(name)):
         raise ApiError(ErrorCode.tags_not_writable, f"Can't write tags to {file.filename}")
 
+    # No transaction left open while the file is copied (the database closes one idle for
+    # long): what was read stays usable.
+    await session.commit()
     # A folder made for it goes again if the file isn't kept.
     fresh = not await asyncio.to_thread(folder.exists)
     await files.write(folder.mkdir, parents=True, exist_ok=True)

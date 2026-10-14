@@ -418,8 +418,10 @@ async def upload_files(
         rel = dest.relative_to(settings.library_path).as_posix()
         if _is_audio(name):
             await enqueue(session, "import_track", {"path": rel}, dedupe_key=f"import:{rel}")
+        # Each file's import queued at once, and no transaction left open while the next
+        # one is copied (the database closes one idle for long).
+        await session.commit()
         results.append(UploadResult(path=rel))
-    await session.commit()
     return results
 
 

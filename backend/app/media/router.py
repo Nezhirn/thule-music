@@ -2,6 +2,7 @@ import asyncio
 import enum
 import mimetypes
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -12,7 +13,7 @@ from sqlalchemy import select
 from app.deps import CurrentUser, OptionalUser, SessionDep, SettingsDep
 from app.errors import ApiError, ErrorCode
 from app.jobs.queue import enqueue, enqueue_many
-from app.library.covers import COVER_SIZES, cover_file
+from app.library.covers import COVER_SIZES, cover_path
 from app.library.importer import resolve_in_library
 from app.library.models import VARIANT_BITRATES, Album, Cover, Track, TrackFile, Variant
 from app.media import signing
@@ -129,7 +130,7 @@ async def stream_track(
         )
         if variant is not None:
             path = settings.transcodes_path / variant.path
-            if path.is_file():
+            if await asyncio.to_thread(path.is_file):
                 return FileResponse(
                     path,
                     media_type=variant.mime,
@@ -140,7 +141,7 @@ async def stream_track(
                 )
 
     path = resolve_in_library(settings.library_path, track.path)
-    if not path.is_file():
+    if not await asyncio.to_thread(path.is_file):
         raise ApiError(ErrorCode.audio_file_missing)
     media_type = AUDIO_MIME.get(path.suffix.casefold()) or (
         mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -155,6 +156,31 @@ async def stream_track(
     )
 
 
+class _CoverHashes:
+    """Cover id -> the hash its files are named by. A cover never changes its image, so a
+    grid of covers is served without asking the database for each."""
+
+    LIMIT = 20_000
+
+    def __init__(self) -> None:
+        self._hashes: OrderedDict[uuid.UUID, str] = OrderedDict()
+
+    def get(self, cover_id: uuid.UUID) -> str | None:
+        source_hash = self._hashes.get(cover_id)
+        if source_hash is not None:
+            self._hashes.move_to_end(cover_id)
+        return source_hash
+
+    def remember(self, cover_id: uuid.UUID, source_hash: str) -> str:
+        self._hashes[cover_id] = source_hash
+        if len(self._hashes) > self.LIMIT:
+            self._hashes.popitem(last=False)
+        return source_hash
+
+
+_cover_hashes = _CoverHashes()
+
+
 @router.get("/covers/{cover_id}", response_class=FileResponse)
 async def get_cover(
     cover_id: uuid.UUID,
@@ -167,10 +193,13 @@ async def get_cover(
     """Public (no auth) so `<img src>` works; ids are unguessable UUIDs."""
     if size is not None and size not in COVER_SIZES:
         raise ApiError(ErrorCode.invalid_cover_size, f"size must be one of {COVER_SIZES}")
-    cover = await session.get(Cover, cover_id)
-    if cover is None:
-        raise ApiError(ErrorCode.cover_not_found)
-    path = cover_file(settings.covers_path, cover, size)
+    source_hash = _cover_hashes.get(cover_id)
+    if source_hash is None:
+        cover = await session.get(Cover, cover_id)
+        if cover is None:
+            raise ApiError(ErrorCode.cover_not_found)
+        source_hash = _cover_hashes.remember(cover_id, cover.source_hash)
+    path = cover_path(settings.covers_path, source_hash, size)
     if not await asyncio.to_thread(path.is_file):
         # Lost (a database restored without the data folder): the albums showing it choose
         # it again from their files. A cover an admin chose is gone with the folder.

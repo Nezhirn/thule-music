@@ -32,6 +32,13 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # The database pool of the API: requests wait up to the timeout for a connection, then
+    # get 503 rather than hang. A statement running longer than its timeout is cancelled.
+    db_pool_size: int = 10
+    db_max_overflow: int = 10
+    db_pool_timeout_seconds: float = 10
+    db_statement_timeout_seconds: int = 30
+
     worker_poll_interval_seconds: float = 1.0
     housekeeping_interval_seconds: int = 6 * 3600
 
