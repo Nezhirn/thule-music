@@ -3,9 +3,10 @@ import os
 import time
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.library.models import TrackFile
+from app.media import transcode
 from app.media.transcode import run_ffmpeg
 
 
@@ -110,3 +111,27 @@ async def test_hung_ffmpeg_is_killed(tmp_path, monkeypatch):
     assert not dst.exists() and not dst.with_suffix(".part").exists()
     with pytest.raises(ProcessLookupError):  # killed and reaped, not left running
         os.kill(int(pid_file.read_text()), 0)
+
+
+async def test_a_file_changed_while_transcoded_is_transcoded_again(
+    client, admin, make_audio, run_jobs, settings, job_ctx, monkeypatch
+):
+    track = await one_track(client, admin, make_audio, run_jobs)
+    async with job_ctx.sessionmaker() as session:
+        await session.execute(delete(TrackFile))
+        await session.commit()
+
+    def changed_meanwhile(src, dst, bitrate):
+        os.utime(src, (time.time(), time.time() + 5))
+        return run_ffmpeg(src, dst, bitrate)
+
+    monkeypatch.setattr(transcode, "run_ffmpeg", changed_meanwhile)
+    with pytest.raises(transcode.SourceChanged):
+        await transcode.transcode_track(job_ctx, {"track_id": track["id"]})
+    async with job_ctx.sessionmaker() as session:
+        assert (await session.scalars(select(TrackFile))).all() == []
+
+    monkeypatch.undo()
+    await transcode.transcode_track(job_ctx, {"track_id": track["id"]})
+    async with job_ctx.sessionmaker() as session:
+        assert len((await session.scalars(select(TrackFile))).all()) == 2

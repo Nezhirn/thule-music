@@ -8,7 +8,7 @@ import hashlib
 import os
 import re
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import BinaryIO
 
@@ -17,7 +17,9 @@ from app.library.tags import FOLDER_COVER_NAMES, FOLDER_COVER_SUFFIXES
 from app.lyrics.models import SIDECAR_SUFFIXES
 
 _UNSAFE = re.compile(r"[^\w\-. ()\[\]&,']+", re.UNICODE)
-MAX_NAME = 120  # characters of a file or folder name: Cyrillic takes 2 of the 255 bytes
+# Bytes (UTF-8) of a file or folder name: file systems allow 255, and a free name may grow
+# by " (12)". Cyrillic takes 2 bytes a letter, Chinese and Japanese 3.
+MAX_NAME_BYTES = 200
 MAX_DEPTH = 8
 # Left behind by file managers; a folder holding only these (and its cover) is empty.
 JUNK = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
@@ -27,9 +29,11 @@ def safe_part(name: str) -> str:
     """A file or folder name with nothing that could reach outside its folder ("..", "/")
     or hide it (a leading dot); "" when nothing is left."""
     cleaned = _UNSAFE.sub("_", name).strip(" .")
-    if len(cleaned) > MAX_NAME:
+    if len(cleaned.encode()) > MAX_NAME_BYTES:
         stem, suffix = Path(cleaned).stem, Path(cleaned).suffix
-        cleaned = stem[: MAX_NAME - len(suffix)].rstrip(" .") + suffix
+        room = MAX_NAME_BYTES - len(suffix.encode())
+        stem = stem.encode()[:room].decode(errors="ignore")  # not half a letter
+        cleaned = stem.rstrip(" .") + suffix
     return cleaned
 
 
@@ -52,6 +56,8 @@ async def write[**P, R](func: Callable[P, R], *args: P.args, **kwargs: P.kwargs)
             raise ApiError(ErrorCode.disk_full) from exc
         if isinstance(exc, PermissionError) or exc.errno == errno.EROFS:
             raise ApiError(ErrorCode.library_not_writable) from exc
+        if exc.errno == errno.ENAMETOOLONG:
+            raise ApiError(ErrorCode.name_too_long) from exc
         raise
 
 
@@ -129,20 +135,21 @@ def _leftover(name: str) -> bool:
     return cover or name.casefold() in JUNK
 
 
-def prune(folder: Path, root: Path) -> None:
-    """Removes `folder` and the folders above it (below `root`) that were left with no
-    music: nothing in them but a cover image and file managers' junk. Anything else (a
-    booklet, a .cue) keeps its folder."""
+def prune(folder: Path, root: Path, keep: Iterable[Path] = ()) -> None:
+    """Removes `folder` and the folders above it (below `root`, and but `keep`) that were
+    left with no music: nothing in them but a cover image and file managers' junk. Anything
+    else (a booklet, a .cue) keeps its folder. Tidying only: what can't be removed stays."""
     root = root.resolve()
+    kept = {k.resolve() for k in keep}
     current = folder.resolve()
-    while current != root and current.is_relative_to(root):
-        try:
+    try:
+        while current != root and current.is_relative_to(root) and current not in kept:
             entries = list(os.scandir(current))
-        except OSError:
-            return
-        if any(e.is_dir(follow_symlinks=False) or not _leftover(e.name) for e in entries):
-            return
-        for entry in entries:
-            os.unlink(entry.path)
-        current.rmdir()
-        current = current.parent
+            if any(e.is_dir(follow_symlinks=False) or not _leftover(e.name) for e in entries):
+                return
+            for entry in entries:
+                os.unlink(entry.path)
+            current.rmdir()
+            current = current.parent
+    except OSError:
+        return

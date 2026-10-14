@@ -4,6 +4,7 @@ import asyncio
 import enum
 import os
 import uuid
+import weakref
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -366,6 +367,16 @@ async def _existing_copy(
     return None
 
 
+_folder_locks: weakref.WeakValueDictionary[Path, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+def _folder_lock(directory: Path) -> asyncio.Lock:
+    lock = _folder_locks.get(directory)
+    if lock is None:
+        lock = _folder_locks[directory] = asyncio.Lock()
+    return lock
+
+
 def _is_audio(name: str) -> bool:
     return Path(name).suffix.casefold() in AUDIO_EXTENSIONS
 
@@ -395,9 +406,13 @@ async def upload_files(
     results = []
     for file, name in zip(files, names, strict=True):
         dest, digest = await write(save_upload, file.file, directory, name)
-        existing = await _existing_copy(session, settings, dest, digest)
+        # One file of a folder at a time: two copies uploaded at once would each find the
+        # other and both go.
+        async with _folder_lock(directory):
+            existing = await _existing_copy(session, settings, dest, digest)
+            if existing is not None:
+                await asyncio.to_thread(dest.unlink)
         if existing is not None:
-            await asyncio.to_thread(dest.unlink)
             results.append(UploadResult(path=existing, duplicate=True))
             continue
         rel = dest.relative_to(settings.library_path).as_posix()

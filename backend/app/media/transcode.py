@@ -83,33 +83,57 @@ def needed_variants(track: Track) -> list[Variant]:
     return list(Variant)
 
 
+class SourceChanged(Exception):
+    """The audio file changed while it was encoded: the job runs again for the new one."""
+
+
+def _source_stat(src: Path) -> tuple[int, float]:
+    st = src.stat()
+    return st.st_size, st.st_mtime
+
+
 async def transcode_track(ctx: JobContext, payload: dict[str, Any]) -> None:
     track_id = uuid.UUID(payload["track_id"])
+    # No transaction is held while ffmpeg runs, which may take many minutes.
     async with ctx.sessionmaker() as session:
         track = await session.get(Track, track_id)
         if track is None:
             return
-        src = resolve_in_library(ctx.settings.library_path, track.path)
-        deadline = time.monotonic() + JOB_BUDGET.total_seconds()
+        rel, duration_ms, variants = track.path, track.duration_ms, needed_variants(track)
+    src = resolve_in_library(ctx.settings.library_path, rel)
+    before = await asyncio.to_thread(_source_stat, src)
+    deadline = time.monotonic() + JOB_BUDGET.total_seconds()
 
-        for variant in needed_variants(track):
-            dst = variant_path(ctx.settings.transcodes_path, track.id, variant)
-            bitrate = VARIANT_BITRATES[variant]
-            timeout = min(60 + track.duration_ms / 1000, deadline - time.monotonic())
-            try:
-                async with asyncio.timeout(max(timeout, 0)):
-                    await run_ffmpeg(src, dst, bitrate)
-            except TimeoutError:
-                raise TranscodeError(f"ffmpeg did not finish within {timeout:.0f} s") from None
+    rendered = []
+    for variant in variants:
+        dst = variant_path(ctx.settings.transcodes_path, track_id, variant)
+        bitrate = VARIANT_BITRATES[variant]
+        timeout = min(60 + duration_ms / 1000, deadline - time.monotonic())
+        try:
+            async with asyncio.timeout(max(timeout, 0)):
+                await run_ffmpeg(src, dst, bitrate)
+        except TimeoutError:
+            raise TranscodeError(f"ffmpeg did not finish within {timeout:.0f} s") from None
+        rendered.append((variant, dst, bitrate, (await asyncio.to_thread(dst.stat)).st_size))
+
+    # A new file in its place meanwhile (replaced, re-tagged): the variants are of the old
+    # one, and its own transcode was skipped as this one was running.
+    if await asyncio.to_thread(_source_stat, src) != before:
+        raise SourceChanged(f"{rel} changed while it was transcoded")
+    async with ctx.sessionmaker() as session:
+        track = await session.get(Track, track_id)
+        if track is None or track.path != rel:
+            return
+        for variant, dst, bitrate, size in rendered:
             values = {
                 "path": str(dst.relative_to(ctx.settings.transcodes_path)),
                 "mime": OPUS_MIME,
                 "bitrate": bitrate,
-                "size": dst.stat().st_size,
+                "size": size,
             }
             await session.execute(
                 insert(TrackFile)
-                .values(id=uuid.uuid4(), track_id=track.id, variant=variant, **values)
+                .values(id=uuid.uuid4(), track_id=track_id, variant=variant, **values)
                 .on_conflict_do_update(constraint="uq_track_files_track_variant", set_=values)
             )
         await session.commit()

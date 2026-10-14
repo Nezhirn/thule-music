@@ -28,6 +28,7 @@ from app.errors import ApiError, ErrorCode
 from app.library import files
 from app.library.importer import (
     Imported,
+    LibraryUnavailable,
     choose_covers,
     delete_orphans,
     import_file,
@@ -251,6 +252,8 @@ async def _reimport(
             result = await import_file(session, settings.library_path, rel)
         except UnreadableAudio as exc:
             raise ApiError(ErrorCode.not_an_audio_file, str(exc)) from exc
+        except LibraryUnavailable as exc:
+            raise ApiError(ErrorCode.library_unavailable) from exc
         if result is not None:
             imported.append(result)
     await delete_orphans(session)
@@ -260,6 +263,15 @@ async def _reimport(
     for result in imported:
         await queue_follow_ups(session, result, transcode=transcode)
     return imported
+
+
+async def _prune(settings: Settings, folders: Iterable[Path]) -> None:
+    """Removes the folders that were left without music (after the commit: tidying that
+    fails changes nothing that was done). The uploads folder stays."""
+    for folder in folders:
+        await asyncio.to_thread(
+            files.prune, folder, settings.library_path, keep=[settings.uploads_path]
+        )
 
 
 async def _retag(
@@ -349,9 +361,8 @@ async def _delete_files(session: AsyncSession, settings: Settings, tracks: list[
         await delete_orphans(session)
         album_ids = {t.album_id for t in deleted}
         await choose_covers(session, settings.library_path, settings.covers_path, album_ids)
-        for folder in folders:
-            await asyncio.to_thread(files.prune, folder, settings.library_path)
         await session.commit()
+        await _prune(settings, folders)
 
 
 # --- albums --------------------------------------------------------------------------------
@@ -530,7 +541,7 @@ async def _upload(
     async def give_up() -> None:
         dest.unlink(missing_ok=True)
         if fresh:
-            await asyncio.to_thread(files.prune, folder, settings.library_path)
+            await _prune(settings, [folder])
 
     try:
         same = await _same_track(session, settings, dest, digest)
@@ -668,9 +679,8 @@ async def move_tracks(
             await _write_tags(moved, values)
     finally:
         imported = await _reimport(session, settings, done, albums=albums)
-        for path in left:
-            await asyncio.to_thread(files.prune, path, settings.library_path)
         await session.commit()
+        await _prune(settings, left)
     result = target.id if target is not None else imported[0].album.id
     return await _album_out(session, admin, result)
 

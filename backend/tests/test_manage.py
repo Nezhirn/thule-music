@@ -4,7 +4,7 @@ nothing to change."""
 import errno
 from pathlib import Path
 
-from app.library import manage
+from app.library import files, manage
 from app.library.tags import read_tags
 from tests.conftest import png_bytes
 
@@ -360,3 +360,34 @@ async def test_files_that_cant_be_changed(client, admin, user, make_audio, run_j
     ).status_code == 403
     tracks = (await client.get("/tracks", headers=admin)).json()["items"]
     assert (await client.delete(f"/tracks/{tracks[0]['id']}", headers=user)).status_code == 403
+
+
+async def test_tidying_folders_that_fails_undoes_nothing(
+    client, admin, make_audio, run_jobs, settings, monkeypatch
+):
+    make_audio("Al/01.flac", title="One", artist="A", album="Al")
+    await scan(client, admin, run_jobs)
+    al = (await albums(client, admin))["Al"]
+    upload = make_audio("../up.flac", title="Up", artist="A", album="Al").read_bytes()
+    resp = await client.post(
+        f"/albums/{al['id']}/tracks", files={"file": ("up.flac", upload)}, headers=admin
+    )
+    track = resp.json()["track"]
+
+    def refuse(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "rmdir", refuse)
+    gone = await client.delete(f"/albums/{al['id']}?tracks=delete", headers=admin)
+    assert gone.status_code == 200, gone.text
+    assert (await client.get(f"/tracks/{track['id']}", headers=admin)).status_code == 404
+    assert not (settings.library_path / "Al" / "01.flac").exists()
+
+
+def test_tidying_keeps_the_uploads_folder(tmp_path):
+    root = tmp_path / "library"
+    album = root / "uploads" / "Artist" / "Album"
+    album.mkdir(parents=True)
+    (album / "cover.jpg").write_bytes(b"jpg")
+    files.prune(album, root, keep=[root / "uploads"])
+    assert sorted(p.name for p in root.rglob("*")) == ["uploads"]

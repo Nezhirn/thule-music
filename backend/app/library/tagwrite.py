@@ -1,6 +1,13 @@
 """Writes the tags Thule reads (see app.library.tags) back into audio files: what admins
 change in the library goes into the files, so a scan reads the same thing."""
 
+import os
+import re
+import secrets
+import shutil
+import stat
+import threading
+import weakref
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -48,11 +55,86 @@ def _repaired(path: Path) -> dict[str, str | list[str]]:
 
 def write_tags(path: Path, values: Values) -> None:
     """Sets the given tags and leaves the others. Raises TagsNotWritable for formats it
-    can't tag, and OSError when the file can't be written."""
+    can't tag, and OSError when the file can't be written.
+
+    The file is often the only copy of the music, and writing tags may shift all of its
+    audio along, so the tags are written into a copy beside it that then replaces it: a
+    write cut short (the process killed, the power gone) leaves the file as it was. The
+    file is written in place only when a copy couldn't be just like it: another owner the
+    server can't give the copy, hard links that would no longer share it, a folder the
+    server can't write to, no room for a copy."""
+    target = path.resolve()  # a link: the file it points to is the one changed
+    with _lock(target):
+        copy = _copy_beside(target)
+        if copy is None:
+            _write(target, values, name=path.name)
+            return
+        try:
+            _write(copy, values, name=path.name)
+            _fsync(copy)
+            os.replace(copy, target)
+        except BaseException:
+            copy.unlink(missing_ok=True)
+            raise
+        _fsync(target.parent)
+
+
+# The copy a write goes to, beside the file: hidden (scans skip it) and with the file's
+# extension (mutagen tells some formats by it).
+_COPY = re.compile(r"^\.thule-[0-9a-f]{12}\.[^.]+$")
+
+
+def is_leftover_copy(name: str) -> bool:
+    """A copy of a write that was cut short (see write_tags)."""
+    return bool(_COPY.match(name))
+
+
+def _copy_beside(target: Path) -> Path | None:
+    """A copy of the file beside it, with its owner, mode and times; None when it can't be
+    just like the file (see write_tags)."""
+    st = target.stat()
+    if st.st_nlink > 1:
+        return None
+    copy = target.with_name(f".thule-{secrets.token_hex(6)}{target.suffix}")
+    try:
+        shutil.copy2(target, copy)
+        made = copy.stat()
+        if (made.st_uid, made.st_gid) != (st.st_uid, st.st_gid):
+            os.chown(copy, st.st_uid, st.st_gid)
+            os.chmod(copy, stat.S_IMODE(st.st_mode))  # chown may drop setuid bits
+    except OSError:
+        copy.unlink(missing_ok=True)
+        return None
+    return copy
+
+
+def _fsync(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+# Writes to one file are one at a time: two at once would each copy it before the other's
+# change. (Tags are written by the API process only.)
+_locks: weakref.WeakValueDictionary[Path, threading.Lock] = weakref.WeakValueDictionary()
+_locks_lock = threading.Lock()
+
+
+def _lock(path: Path) -> threading.Lock:
+    with _locks_lock:
+        lock = _locks.get(path)
+        if lock is None:
+            lock = _locks[path] = threading.Lock()
+        return lock
+
+
+def _write(path: Path, values: Values, *, name: str) -> None:
     try:
         audio = mutagen.File(path, easy=True)
         if not isinstance(audio, WRITABLE):
-            raise TagsNotWritable(path.name)
+            raise TagsNotWritable(name)
         if audio.tags is None:
             audio.add_tags()
         tags: Any = audio.tags  # easy tags of whichever format: a mapping of lists
@@ -70,4 +152,4 @@ def write_tags(path: Path, values: Values) -> None:
         # mutagen wraps what went wrong with the file itself: told as such.
         if isinstance(exc.__context__, OSError):
             raise exc.__context__ from exc
-        raise TagsNotWritable(f"{path.name}: {exc}") from exc
+        raise TagsNotWritable(f"{name}: {exc}") from exc

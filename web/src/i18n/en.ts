@@ -741,7 +741,10 @@ export const en = {
     job_not_found: "This job has already been restarted or removed.",
     library_not_writable:
       "The server can't write to the music folder: check that folder's owner and permissions.",
+    library_unavailable:
+      "The music folder on the server is empty or can't be read: check that its disk is connected.",
     disk_full: "There's no space left on the server's disk.",
+    name_too_long: "A file or folder name is too long.",
     playlist_not_found: "Playlist not found.",
     playlist_item_not_found: "This track is no longer in the playlist.",
     unknown_tracks: "Some tracks no longer exist.",

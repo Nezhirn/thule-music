@@ -1,4 +1,6 @@
+import asyncio
 import errno
+import threading
 
 from app.db import utcnow
 from app.jobs.models import Job, JobStatus
@@ -279,3 +281,47 @@ async def test_administration_is_for_admins(client, user):
         assert resp.status_code == 403, url
     resp = await client.post("/library/uploads/status", json={"paths": ["a"]}, headers=user)
     assert resp.status_code == 403
+
+
+async def test_two_copies_uploaded_at_once_keep_one(client, admin, settings, monkeypatch):
+    image = png_bytes((5, 5, 5))
+    # Both saved before either looks for a copy of itself.
+    both_saved = threading.Barrier(2, timeout=10)
+    save = library_admin.save_upload
+
+    def save_together(*args):
+        saved = save(*args)
+        both_saved.wait()
+        return saved
+
+    monkeypatch.setattr(library_admin, "save_upload", save_together)
+
+    async def upload(name: str):
+        resp = await client.post(
+            "/library/uploads",
+            files=[("files", (name, image))],
+            data={"folder": "A/X"},
+            headers=admin,
+        )
+        return resp.json()[0]
+
+    results = await asyncio.gather(upload("cover.png"), upload("folder.png"))
+    kept = [p.name for p in (settings.uploads_path / "A" / "X").iterdir()]
+    assert len(kept) == 1
+    assert sorted(r["duplicate"] for r in results) == [False, True]
+
+
+async def test_long_names_in_any_script_fit_the_file_system(client, admin, make_audio):
+    song = make_audio("../song.mp3", title="S", artist="A", album="X").read_bytes()
+    name = "あ" * 100 + ".mp3"  # 300 bytes: too long for a file name
+    resp = await client.post(
+        "/library/uploads",
+        files=[("files", (name, song))],
+        data={"folder": "歌" * 100},
+        headers=admin,
+    )
+    assert resp.status_code == 202, resp.text
+    (saved,) = resp.json()
+    folder, file = saved["path"].removeprefix("uploads/").split("/")
+    assert len(folder.encode()) <= 200 and folder == "歌" * 66
+    assert len(file.encode()) <= 200 and file.endswith(".mp3") and file.startswith("あ" * 65)

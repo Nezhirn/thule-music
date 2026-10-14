@@ -6,6 +6,7 @@ import logging
 import os
 import posixpath
 import re
+import time
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from app.library.covers import is_image, store_cover
 from app.library.models import Album, Artist, Cover, Track, TrackArtist, name_key
 from app.library.queries import TRACK_ORDER
 from app.library.tags import embedded_picture, folder_cover, pick_folder_cover, read_tags
+from app.library.tagwrite import is_leftover_copy
 from app.lyrics.models import MANUAL, SIDECAR_SUFFIXES, Lyrics
 
 log = logging.getLogger(__name__)
@@ -57,6 +59,9 @@ Stat = tuple[int, float]
 # artwork): a big album without any, such as "Unknown Album", would otherwise make each
 # import of one of its tracks read all of them.
 ART_TRACKS = 10
+
+# A copy left by a tag write this long ago is no write in progress (see tagwrite).
+LEFTOVER_AGE = 3600
 
 # A scan that would remove more tracks than this, and more than a fifth of the library,
 # removes none until told to (see scan_library).
@@ -87,6 +92,8 @@ class _Walked:
     # Folders and files that couldn't be read (a disk gone, a link to one, no permission):
     # what is known under them is not taken for deleted.
     unreadable: set[str]
+    # Copies left by tag writes that were cut short (see tagwrite.write_tags).
+    leftovers: list[Path]
 
 
 def _rel(root: Path, path: str | Path) -> str:
@@ -96,7 +103,7 @@ def _rel(root: Path, path: str | Path) -> str:
 
 def _walk(root: Path) -> _Walked:
     """What is in the library folder; paths relative to the root, the root folder is ""."""
-    walked = _Walked({}, {}, {}, set())
+    walked = _Walked({}, {}, {}, set(), [])
     found, images, lyrics = walked.found, walked.images, walked.lyrics
 
     def unreadable(error: OSError) -> None:
@@ -130,6 +137,11 @@ def _walk(root: Path) -> _Walked:
         names = set(filenames)
         for name in filenames:
             if name.startswith("."):
+                if is_leftover_copy(name):
+                    with contextlib.suppress(OSError):
+                        # ctime: a copy keeps the file's mtime until it is written.
+                        if os.stat(Path(dirpath, name)).st_ctime < time.time() - LEFTOVER_AGE:
+                            walked.leftovers.append(Path(dirpath, name))
                 continue
             full = Path(dirpath, name)
             if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
@@ -151,6 +163,12 @@ def _walk(root: Path) -> _Walked:
                     with contextlib.suppress(OSError):
                         lyrics[rel] = max(lyrics.get(rel, 0.0), sidecar.stat().st_mtime)
     return walked
+
+
+def _remove(paths: list[Path]) -> None:
+    for path in paths:
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def _under(path: str, folders: set[str]) -> bool:
@@ -426,6 +444,9 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, in
     on_disk, images, sidecars = walked.found, walked.images, walked.lyrics
     if walked.unreadable:
         log.warning("scan: couldn't read %s", ", ".join(sorted(walked.unreadable)[:20]))
+    if walked.leftovers:
+        log.info("scan: removing %d copies left by cut-short tag writes", len(walked.leftovers))
+        await asyncio.to_thread(_remove, walked.leftovers)
 
     async with ctx.sessionmaker() as session:
         not_found = [path for path in known if path not in on_disk]
