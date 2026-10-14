@@ -465,3 +465,9 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+.missing {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}

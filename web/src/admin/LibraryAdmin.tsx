@@ -86,7 +86,12 @@ function ScanCard({ work }: { work: Work }) {
   const queryClient = useQueryClient();
   const scan = work.scan.data;
   const start = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/v1/library/scan")),
+    mutationFn: (removeMissing: boolean) =>
+      unwrap(
+        api.POST("/api/v1/library/scan", {
+          body: removeMissing ? { remove_missing: true } : undefined,
+        }),
+      ),
     onSuccess: (started) => {
       queryClient.setQueryData(scanQuery.queryKey, started);
       void queryClient.invalidateQueries({ queryKey: summaryQuery.queryKey });
@@ -142,10 +147,26 @@ function ScanCard({ work }: { work: Work }) {
           </div>
         )}
       </div>
+      {!work.scanBusy && scan?.status === "done" && scan.result?.unreadable ? (
+        <Alert tone="info">{text.unreadable(scan.result.unreadable)}</Alert>
+      ) : null}
+      {!work.scanBusy && scan?.status === "done" && scan.result?.missing ? (
+        <div className={styles.missing}>
+          <Alert tone="info">{text.missing(scan.result.missing)}</Alert>
+          <Button
+            variant="secondary"
+            busyLabel={start.isPending && start.variables && text.removing}
+            disabled={start.isPending}
+            onClick={() => start.mutate(true)}
+          >
+            {text.removeMissing}
+          </Button>
+        </div>
+      ) : null}
       <Button
         className={styles.start}
         busyLabel={(start.isPending || work.scanBusy) && text.scanning}
-        onClick={() => start.mutate()}
+        onClick={() => start.mutate(false)}
       >
         {text.start}
       </Button>

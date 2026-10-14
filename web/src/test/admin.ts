@@ -57,8 +57,9 @@ export function mockAdmin({
   server.use(
     http.get(url("/api/v1/library/stats"), () => HttpResponse.json(state.stats)),
     http.get(url("/api/v1/library/scan"), () => HttpResponse.json(state.scan)),
-    http.post(url("/api/v1/library/scan"), ({ request }) => {
-      record(request);
+    http.post(url("/api/v1/library/scan"), async ({ request }) => {
+      const body = await request.text();
+      record(request, body ? JSON.parse(body) : null);
       state.scan = {
         id: "00000000-0000-0000-0000-00000000005c",
         status: "queued",

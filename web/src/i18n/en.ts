@@ -516,6 +516,20 @@ export const en = {
         removed: (n: number) => `${n} removed`,
       },
       unchanged: "nothing changed",
+      missing: (n: number) =>
+        plural("en", n, {
+          one: "# track wasn't found in the music folder and was kept: if its disk isn't connected, connect it and scan again. If you deleted the files, remove them from the library.",
+          other:
+            "# tracks weren't found in the music folder and were kept: if their disk isn't connected, connect it and scan again. If you deleted the files, remove them from the library.",
+        }),
+      removeMissing: "Remove from the library",
+      removing: "Removing…",
+      unreadable: (n: number) =>
+        plural("en", n, {
+          one: "# track is in a folder that couldn't be read and was kept. Check the disk and the folder's permissions.",
+          other:
+            "# tracks are in folders that couldn't be read and were kept. Check the disk and the folders' permissions.",
+        }),
       failed: "The scan failed.",
       done: (found: string) => `The library is up to date: ${found}.`,
     },

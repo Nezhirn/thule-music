@@ -25,7 +25,15 @@ async def test_scan_reports_what_it_found(client, admin, make_audio, run_jobs, s
     await run_jobs()
     done = (await client.get("/library/scan", headers=admin)).json()
     assert done["id"] == queued["id"] and done["status"] == "done" and done["finished_at"]
-    assert done["result"] == {"files": 3, "added": 3, "updated": 0, "moved": 0, "removed": 0}
+    assert done["result"] == {
+        "files": 3,
+        "added": 3,
+        "updated": 0,
+        "moved": 0,
+        "removed": 0,
+        "missing": 0,
+        "unreadable": 0,
+    }
     assert done["imports"] == {"queued": 0, "running": 0, "done": 3, "failed": 0}
 
     lib = settings.library_path
@@ -34,7 +42,15 @@ async def test_scan_reports_what_it_found(client, admin, make_audio, run_jobs, s
     (lib / "A/X/03.mp3").unlink()
     make_audio("A/X/04.mp3", title="Four", artist="A", album="X", track=4)
     result = (await scan(client, admin, run_jobs))["result"]
-    assert result == {"files": 3, "added": 1, "updated": 1, "moved": 1, "removed": 1}
+    assert result == {
+        "files": 3,
+        "added": 1,
+        "updated": 1,
+        "moved": 1,
+        "removed": 1,
+        "missing": 0,
+        "unreadable": 0,
+    }
 
 
 async def test_library_stats(client, admin, make_audio, run_jobs):

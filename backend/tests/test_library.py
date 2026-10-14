@@ -1,5 +1,10 @@
+import os
+import shutil
+
 import pytest
 
+from app.jobs.queue import enqueue
+from app.library import importer
 from app.library.importer import _walk, resolve_in_library
 from tests.conftest import png_bytes
 
@@ -266,7 +271,7 @@ def test_scan_follows_symlinks_but_not_cycles(tmp_path):
     (tmp_path / "elsewhere").mkdir()
     (tmp_path / "elsewhere" / "2.flac").touch()
     (root / "B").symlink_to(tmp_path / "elsewhere")  # regular linked folder
-    assert set(_walk(root)[0]) == {"A/1.mp3", "B/2.flac"}
+    assert set(_walk(root).found) == {"A/1.mp3", "B/2.flac"}
 
 
 async def test_featured_artists_are_credited_not_merged_into_names(
@@ -313,7 +318,9 @@ async def test_featured_artists_are_credited_not_merged_into_names(
     names = [a["name"] for a in (await client.get("/artists", headers=admin)).json()["items"]]
     assert names == ["Анна Лунина", "Северный Ветер"]
     duet.unlink()
-    await scan(client, admin, run_jobs)
+    # The last file gone: removed once an admin confirms (an empty folder may be unmounted).
+    await client.post("/library/scan", json={"remove_missing": True}, headers=admin)
+    await run_jobs()
     assert (await client.get("/artists", headers=admin)).json()["items"] == []
 
 
@@ -389,3 +396,104 @@ async def test_recently_added_tracks_come_album_by_album(client, admin, make_aud
     await scan(client, admin, run_jobs)
     page = (await client.get("/tracks?sort=added", headers=admin)).json()
     assert [t["title"] for t in page["items"]] == ["Y1", "Y2", "X1", "X2", "X3"]
+
+
+async def last_scan(client, admin) -> dict:
+    return (await client.get("/library/scan", headers=admin)).json()["result"]
+
+
+async def test_scan_of_an_empty_folder_removes_nothing_until_told(
+    client, admin, make_audio, run_jobs, settings
+):
+    """An unmounted disk leaves the music folder empty: the tracks, with their likes, stay
+    until an admin says the music is gone."""
+    make_audio("A/1.mp3", title="One", artist="A", album="X")
+    make_audio("A/2.mp3", title="Two", artist="A", album="X")
+    await scan(client, admin, run_jobs)
+    one = (await client.get("/tracks", headers=admin)).json()["items"][0]["id"]
+    await client.put(f"/me/likes/tracks/{one}", headers=admin)
+
+    shutil.rmtree(settings.library_path / "A")
+    await scan(client, admin, run_jobs)
+    assert (await last_scan(client, admin)) | {"files": 0} == {
+        "files": 0,
+        "added": 0,
+        "updated": 0,
+        "moved": 0,
+        "removed": 0,
+        "missing": 2,
+        "unreadable": 0,
+    }
+    tracks = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert len(tracks) == 2 and next(t for t in tracks if t["id"] == one)["liked"]
+
+    started = await client.post("/library/scan", json={"remove_missing": True}, headers=admin)
+    assert started.status_code == 202
+    await run_jobs()
+    assert (await last_scan(client, admin))["removed"] == 2
+    assert (await client.get("/tracks", headers=admin)).json()["total"] == 0
+
+
+async def test_scan_waits_when_much_of_the_library_vanished_at_once(
+    client, admin, make_audio, run_jobs, settings, monkeypatch
+):
+    monkeypatch.setattr(importer, "MASS_REMOVAL", 2)
+    for n in range(1, 5):
+        make_audio(f"Disk/{n}.mp3", title=f"T{n}", artist="A", album="X")
+    make_audio("Here/1.mp3", title="Here", artist="B", album="Y")
+    await scan(client, admin, run_jobs)
+
+    shutil.rmtree(settings.library_path / "Disk")
+    await scan(client, admin, run_jobs)
+    result = await last_scan(client, admin)
+    assert (result["files"], result["removed"], result["missing"]) == (1, 0, 4)
+    assert (await client.get("/tracks", headers=admin)).json()["total"] == 5
+
+    # A few gone is an ordinary deletion.
+    monkeypatch.setattr(importer, "MASS_REMOVAL", 50)
+    await scan(client, admin, run_jobs)
+    assert (await last_scan(client, admin))["removed"] == 4
+
+
+async def test_tracks_in_folders_that_cant_be_read_stay(
+    client, admin, make_audio, run_jobs, settings, tmp_path, monkeypatch
+):
+    # A folder on another disk, linked into the library.
+    disk = tmp_path / "disk2"
+    (disk / "Album").mkdir(parents=True)
+    make_audio("Local/1.mp3", title="Local", artist="A", album="X")
+    make_audio("Local/2.mp3", title="Unreadable", artist="A", album="Z")
+    linked = make_audio("Local/3.mp3", title="Linked", artist="B", album="Y")
+    linked.rename(disk / "Album" / "1.mp3")
+    (settings.library_path / "Disk2").symlink_to(disk)
+    await scan(client, admin, run_jobs)
+    assert (await client.get("/tracks", headers=admin)).json()["total"] == 3
+
+    # The disk is gone (the link dangles), and a folder can't be listed.
+    shutil.rmtree(disk)
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if os.fspath(path).endswith("/Local"):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    await scan(client, admin, run_jobs)
+    result = await last_scan(client, admin)
+    assert (result["removed"], result["unreadable"], result["missing"]) == (0, 3, 0)
+    assert (await client.get("/tracks", headers=admin)).json()["total"] == 3
+
+
+async def test_an_import_in_an_empty_library_folder_deletes_nothing(
+    client, admin, make_audio, run_jobs, settings, job_ctx
+):
+    path = make_audio("A/1.mp3", title="One", artist="A", album="X")
+    await scan(client, admin, run_jobs)
+    path.write_bytes(path.read_bytes() + b"\0")  # changed: the next scan imports it again
+    async with job_ctx.sessionmaker() as session:
+        await enqueue(session, "import_track", {"path": "A/1.mp3"}, dedupe_key="import:A/1.mp3")
+        await session.commit()
+    shutil.rmtree(settings.library_path / "A")
+    await run_jobs()
+    assert (await client.get("/tracks", headers=admin)).json()["total"] == 1

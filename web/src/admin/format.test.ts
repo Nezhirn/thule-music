@@ -37,10 +37,17 @@ test("times are relative while recent, then a date", () => {
 });
 
 test("what a scan found, leaving out what didn't happen", () => {
-  const result = { files: 50, added: 3, updated: 0, moved: 1, removed: 2 };
+  const nothing = {
+    files: 50,
+    added: 0,
+    updated: 0,
+    moved: 0,
+    removed: 0,
+    missing: 0,
+    unreadable: 0,
+  };
+  const result = { ...nothing, added: 3, moved: 1, removed: 2 };
   expect(foundText(en, result)).toBe("3 added, 1 moved, 2 removed");
   expect(foundText(ru, result)).toBe("добавлено 3, перенесено 1, удалено 2");
-  expect(foundText(en, { files: 50, added: 0, updated: 0, moved: 0, removed: 0 })).toBe(
-    "nothing changed",
-  );
+  expect(foundText(en, nothing)).toBe("nothing changed");
 });

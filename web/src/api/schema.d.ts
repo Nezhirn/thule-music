@@ -1934,6 +1934,14 @@ export interface components {
          * @enum {string}
          */
         Role: "admin" | "user";
+        /** ScanIn */
+        ScanIn: {
+            /**
+             * Remove Missing
+             * @default false
+             */
+            remove_missing?: boolean;
+        };
         /** ScanOut */
         ScanOut: {
             /**
@@ -1970,6 +1978,16 @@ export interface components {
             moved: number;
             /** Removed */
             removed: number;
+            /**
+             * Missing
+             * @default 0
+             */
+            missing: number;
+            /**
+             * Unreadable
+             * @default 0
+             */
+            unreadable: number;
         };
         /** SearchOut */
         SearchOut: {
@@ -3173,7 +3191,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ScanIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

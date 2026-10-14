@@ -10,6 +10,7 @@ import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 from typing import Any
 
 from sqlalchemy import (
@@ -57,6 +58,10 @@ Stat = tuple[int, float]
 # import of one of its tracks read all of them.
 ART_TRACKS = 10
 
+# A scan that would remove more tracks than this, and more than a fifth of the library,
+# removes none until told to (see scan_library).
+MASS_REMOVAL = 50
+
 
 # A disc folder of a multi-disc album ("CD1", "Disc 2 - Live", "Диск 1"): its art is often in
 # the album folder above it.
@@ -71,23 +76,43 @@ def art_folders(folder: str) -> list[str]:
     return [folder]
 
 
-def _walk(
-    root: Path,
-) -> tuple[dict[str, Stat], dict[str, tuple[str, float]], dict[str, float]]:
-    """Audio files as {path: (size, mtime)}, the album art image of each folder that has one
-    as {folder: (image path, mtime)}, and the audio files with lyrics beside them (.lrc,
-    .txt) as {path: newest mtime of those}; paths relative to the root, the root folder is
-    ""."""
-    found: dict[str, Stat] = {}
-    images: dict[str, tuple[str, float]] = {}
-    lyrics: dict[str, float] = {}
+@dataclass
+class _Walked:
+    # Audio files as {path: (size, mtime)}.
+    found: dict[str, Stat]
+    # The album art image of each folder that has one, as {folder: (image path, mtime)}.
+    images: dict[str, tuple[str, float]]
+    # The audio files with lyrics beside them (.lrc, .txt), as {path: newest mtime of those}.
+    lyrics: dict[str, float]
+    # Folders and files that couldn't be read (a disk gone, a link to one, no permission):
+    # what is known under them is not taken for deleted.
+    unreadable: set[str]
+
+
+def _rel(root: Path, path: str | Path) -> str:
+    rel = Path(path).relative_to(root).as_posix()
+    return "" if rel == "." else rel
+
+
+def _walk(root: Path) -> _Walked:
+    """What is in the library folder; paths relative to the root, the root folder is ""."""
+    walked = _Walked({}, {}, {}, set())
+    found, images, lyrics = walked.found, walked.images, walked.lyrics
+
+    def unreadable(error: OSError) -> None:
+        try:
+            walked.unreadable.add(_rel(root, error.filename))
+        except (TypeError, ValueError):
+            walked.unreadable.add("")  # can't tell where: nothing is taken for deleted
+
     # (st_dev, st_ino) of the directories from the root down to each visited one. Symlinks
     # are followed, so a link back to an ancestor would otherwise repeat the subtree.
     ancestry: dict[str, frozenset[tuple[int, int]]] = {}
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+    for dirpath, dirnames, filenames in os.walk(root, onerror=unreadable, followlinks=True):
         try:
             dir_st = os.stat(dirpath)
         except OSError:
+            walked.unreadable.add(_rel(root, dirpath))
             dirnames[:] = []
             continue
         dir_id = (dir_st.st_dev, dir_st.st_ino)
@@ -97,27 +122,62 @@ def _walk(
             continue
         ancestry[dirpath] = above | {dir_id}
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        rel_dir = Path(dirpath).relative_to(root).as_posix().removeprefix(".")
+        rel_dir = _rel(root, dirpath)
         if image := pick_folder_cover(n for n in filenames if not n.startswith(".")):
             with contextlib.suppress(OSError):
                 mtime = os.stat(Path(dirpath, image)).st_mtime
                 images[rel_dir] = (posixpath.join(rel_dir, image), mtime)
         names = set(filenames)
         for name in filenames:
-            if name.startswith(".") or Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
+            if name.startswith("."):
                 continue
             full = Path(dirpath, name)
+            if Path(name).suffix.casefold() not in AUDIO_EXTENSIONS:
+                # A link to a folder whose disk is gone is listed as a file.
+                if full.is_symlink() and not full.exists():
+                    walked.unreadable.add(_rel(root, full))
+                continue
             try:
                 st = full.stat()
+            except FileNotFoundError:
+                continue  # deleted while the folder was read
             except OSError:
+                walked.unreadable.add(_rel(root, full))
                 continue
-            rel = full.relative_to(root).as_posix()
+            rel = _rel(root, full)
             found[rel] = (st.st_size, st.st_mtime)
             for sidecar in (full.with_suffix(suffix) for suffix in SIDECAR_SUFFIXES):
                 if sidecar.name in names:
                     with contextlib.suppress(OSError):
                         lyrics[rel] = max(lyrics.get(rel, 0.0), sidecar.stat().st_mtime)
-    return found, images, lyrics
+    return walked
+
+
+def _under(path: str, folders: set[str]) -> bool:
+    """Whether the library path is one of `folders` or inside one ("" is the root)."""
+    return any(f == "" or path == f or path.startswith(f + "/") for f in folders)
+
+
+def _gone(root: Path, paths: list[str]) -> list[str]:
+    """The paths whose file is certainly not there: not found, rather than unreadable."""
+    gone = []
+    for rel in paths:
+        try:
+            os.stat(resolve_in_library(root, rel))
+        except (FileNotFoundError, NotADirectoryError):
+            gone.append(rel)
+        except OSError:
+            continue
+    return gone
+
+
+def library_is_empty(root: Path) -> bool:
+    """Nothing at all in the library folder: most likely its disk is not mounted."""
+    try:
+        with os.scandir(root) as entries:
+            return next(entries, None) is None
+    except OSError:
+        return True
 
 
 def _album_picture(root: Path, paths: list[str]) -> tuple[bytes, str, float] | None:
@@ -343,19 +403,34 @@ async def _stale_lyrics(
 
 async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, int]:
     """Compares the library folder with the database and queues the work that follows. The
-    counts it returns are files: added and updated ones are queued for import, not yet done."""
+    counts it returns are files: added and updated ones are queued for import, not yet done.
+
+    Tracks are removed only when their file is certainly gone. Under a folder that couldn't
+    be read they stay (`unreadable`). When the folder is empty, or more than MASS_REMOVAL
+    tracks and a fifth of the library vanished at once, nothing is removed (`missing`) until
+    the scan runs with `remove_missing`: the disk is more likely unmounted than the music
+    deleted, and removing a track takes its likes, playlist entries and plays with it."""
     root = ctx.settings.library_path
     if not root.is_dir():
         raise FileNotFoundError(f"Library path does not exist: {root}")
     root = root.resolve()
-    on_disk, images, sidecars = await asyncio.to_thread(_walk, root)
 
+    # Read before the folder: what is imported or moved while it is read is then at worst
+    # found new (and imported again), never taken for deleted.
     async with ctx.sessionmaker() as session:
         known = {
             row.path: _Known(row.id, row.size, row.mtime)
             for row in await session.execute(select(Track.id, Track.path, Track.size, Track.mtime))
         }
-        vanished = {path: k for path, k in known.items() if path not in on_disk}
+    walked = await asyncio.to_thread(_walk, root)
+    on_disk, images, sidecars = walked.found, walked.images, walked.lyrics
+    if walked.unreadable:
+        log.warning("scan: couldn't read %s", ", ".join(sorted(walked.unreadable)[:20]))
+
+    async with ctx.sessionmaker() as session:
+        not_found = [path for path in known if path not in on_disk]
+        unreadable = [path for path in not_found if _under(path, walked.unreadable)]
+        vanished = {path: known[path] for path in not_found if not _under(path, walked.unreadable)}
         new = {path: stat for path, stat in on_disk.items() if path not in known}
         moves, reread = await _find_moves(session, root, vanished, new)
 
@@ -372,6 +447,18 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, in
             )
         moved_ids = set(moves.values())
         removed = [path for path, k in vanished.items() if k.id not in moved_ids]
+        removed = await asyncio.to_thread(_gone, root, removed)
+        missing = 0
+        if removed and not payload.get("remove_missing"):
+            mass = len(removed) > MASS_REMOVAL and len(removed) * 5 > len(known)
+            if not on_disk or mass:
+                log.warning(
+                    "scan: %d of %d tracks not found, none removed: is the music folder "
+                    "mounted? Scan with remove_missing to remove them",
+                    len(removed),
+                    len(known),
+                )
+                missing, removed = len(removed), []
 
         def needs_import(path: str, stat: Stat) -> bool:
             if path in moves:
@@ -439,6 +526,8 @@ async def scan_library(ctx: JobContext, payload: dict[str, Any]) -> dict[str, in
         "updated": sum(1 for path in changed if path in known),
         "moved": len(moves),
         "removed": len(removed),
+        "missing": missing,
+        "unreadable": len(unreadable),
     }
     log.info("scan: %s", result)
     return result
@@ -476,6 +565,25 @@ async def upsert_album(
     return album
 
 
+class LibraryUnavailable(Exception):
+    """The library folder is empty or unreadable: its disk is most likely not mounted, and
+    files missing from it are not taken for deleted."""
+
+
+def _stat_file(library: Path, full: Path) -> os.stat_result | None:
+    """The file's stat; None when it is gone. Raises LibraryUnavailable rather than say a
+    file is gone from a library folder that is empty, and OSError when it can't be read."""
+    try:
+        st = full.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        if library_is_empty(library):
+            raise LibraryUnavailable(f"The library folder is empty: {library}") from None
+        return None
+    if not S_ISREG(st.st_mode):
+        return None
+    return st
+
+
 @dataclass
 class Imported:
     track: Track
@@ -491,11 +599,10 @@ async def import_file(session: AsyncSession, library: Path, rel: str) -> Importe
     created or updated. None when the file is gone (its track is deleted). Leaves to the
     caller what is done once for several files: orphans, album covers, follow-up jobs."""
     full = resolve_in_library(library, rel)
-    if not full.is_file():
+    st = await asyncio.to_thread(_stat_file, library, full)
+    if st is None:
         await session.execute(delete(Track).where(Track.path == rel))
         return None
-
-    st = full.stat()
     tags = await asyncio.to_thread(read_tags, full)
 
     album_artist_id = await upsert_artist(session, tags.album_artist)

@@ -51,6 +51,17 @@ class ScanResult(ApiModel):
     updated: int
     moved: int
     removed: int
+    # Tracks whose file wasn't found but that were kept: so many vanished at once (or the
+    # folder was empty) that the disk is more likely unmounted than the music deleted. A
+    # scan with `remove_missing` removes them.
+    missing: int = 0
+    # Tracks kept because the folder they are in couldn't be read.
+    unreadable: int = 0
+
+
+class ScanIn(ApiModel):
+    # Remove the tracks whose file is gone even when that is most of the library.
+    remove_missing: bool = False
 
 
 class JobCounts(ApiModel):
@@ -178,10 +189,11 @@ async def get_library_stats(session: SessionDep, _: AdminUser) -> LibraryStats:
 
 
 @admin_router.post("/scan", response_model=ScanOut, status_code=status.HTTP_202_ACCEPTED)
-async def start_scan(session: SessionDep, _: AdminUser) -> ScanOut:
+async def start_scan(session: SessionDep, _: AdminUser, body: ScanIn | None = None) -> ScanOut:
     """Queues a scan of the library folder; when one is already waiting or running, that
     one is returned instead."""
-    await enqueue(session, "scan_library", dedupe_key="scan")
+    payload = {"remove_missing": True} if body is not None and body.remove_missing else None
+    await enqueue(session, "scan_library", payload, dedupe_key="scan")
     await session.commit()
     # The latest whatever its status: a small library may be scanned already.
     job = await _latest_scan(session)

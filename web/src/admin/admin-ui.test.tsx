@@ -43,7 +43,7 @@ test("the library's numbers, and a scan followed until its files are in", async 
   );
   expect(within(card("Background work")).getByText("Scanning")).toBeVisible();
 
-  const result = { files: 50, added: 3, updated: 0, moved: 0, removed: 1 };
+  const result = { ...nothing, added: 3, removed: 1 };
   const imports = counts({ queued: 1, done: 2 });
   admin.state.scan = { ...admin.state.scan!, status: "done", result, finished_at: now(), imports };
   admin.state.summary = { kinds: { import_track: imports }, pending: 1, failed: 0 };
@@ -64,6 +64,42 @@ test("the library's numbers, and a scan followed until its files are in", async 
   ).toBeVisible();
   expect(within(scanning).getByRole("button", { name: "Scan the library" })).toBeEnabled();
   expect(toast()).toBe("The library is up to date: 3 added, 1 removed.");
+});
+
+test("tracks a scan couldn't find are kept until the admin removes them", async () => {
+  mockAccount();
+  const admin = mockAdmin();
+  admin.state.scan = {
+    id: "00000000-0000-0000-0000-00000000005b",
+    status: "done",
+    created_at: now(),
+    finished_at: now(),
+    error: null,
+    result: { ...nothing, files: 0, missing: 1200, unreadable: 3 },
+    imports: counts({}),
+  };
+  const { user } = renderSignedIn("/admin");
+  const scanning = await screen.findByRole("region", { name: "Scanning" });
+  expect(
+    await within(scanning).findByText(
+      /^1200 tracks weren't found in the music folder and were kept/,
+    ),
+  ).toBeVisible();
+  expect(
+    within(scanning).getByText(/^3 tracks are in folders that couldn't be read and were kept/),
+  ).toBeVisible();
+
+  await user.click(within(scanning).getByRole("button", { name: "Remove from the library" }));
+  await waitFor(() =>
+    expect(admin.calls).toContainEqual({
+      method: "POST",
+      path: "/api/v1/library/scan",
+      body: { remove_missing: true },
+    }),
+  );
+  // The scan that removes them is on its way; the warning goes with the scan it was about.
+  expect(await within(scanning).findByText("Waiting for the worker…")).toBeVisible();
+  expect(within(scanning).queryByText(/weren't found/)).toBeNull();
 });
 
 test("failed jobs say what failed and run again, one or all, or are cleared", async () => {
@@ -266,6 +302,16 @@ test("users: who they are, a new one, a role, a password, signing out, deleting"
     path: "/api/v1/users/grace",
   });
 });
+
+const nothing = {
+  files: 50,
+  added: 0,
+  updated: 0,
+  moved: 0,
+  removed: 0,
+  missing: 0,
+  unreadable: 0,
+};
 
 function counts(partial: Partial<Record<"queued" | "running" | "done" | "failed", number>>) {
   return { queued: 0, running: 0, done: 0, failed: 0, ...partial };
