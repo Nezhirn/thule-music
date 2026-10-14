@@ -94,6 +94,69 @@ test("a queue saved before tracks had pictures of their own shows their albums' 
   expect(item!.track.cover_id).toBe(ALBUM.cover_id);
 });
 
+test("a shuffled queue comes back with the order to go back to", () => {
+  const { player, stop } = setup();
+  player.play([...TRACKS, track("C", ALBUM)], { shuffle: true });
+  const before = player.store.getState().queue;
+  stop();
+  const saved = loadSaved()!;
+  expect(saved.queue).toEqual(before);
+  // Saved as keys, not the tracks again.
+  const raw = JSON.parse(localStorage.getItem("thule.player")!) as {
+    queue: { unshuffled: unknown[] };
+  };
+  expect(raw.queue.unshuffled.every((key) => typeof key === "string")).toBe(true);
+});
+
+test("a queue too big for the browser's storage is saved as the tracks around the current one", () => {
+  const many = Array.from({ length: 1200 }, (_, i) => track(`T${i}`, ALBUM));
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    key: string,
+    value: string,
+  ) {
+    if (value.length > 400_000) throw new DOMException("full", "QuotaExceededError");
+    setItem.call(this, key, value);
+  });
+  const { player, stop } = setup();
+  player.play(many, { start: 700, shuffle: true });
+  stop();
+  const saved = loadSaved()!;
+  expect(saved.queue.items.length).toBeLessThan(many.length);
+  expect(saved.queue.items[saved.queue.current]?.track.title).toBe("T700");
+  expect(saved.queue.unshuffled).toBeNull();
+  forgetSaved();
+});
+
+test("this page's position doesn't write over another tab's newer queue", () => {
+  const { player, later } = setup();
+  player.play(TRACKS);
+  player.pause();
+  // Another tab plays something else meanwhile and saves it.
+  const other = { key: "other", track: track("Other", ALBUM) };
+  localStorage.setItem(
+    "thule.player",
+    JSON.stringify({ v: 3, queue: { items: [other], current: 0, unshuffled: null } }),
+  );
+  later(10_000);
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("pagehide"));
+  expect(loadSaved()?.queue.items.map((item) => item.key)).toEqual(["other"]);
+});
+
+test("a save whose tracks aren't tracks any more is ignored", () => {
+  const item = { key: "a", track: { ...TRACKS[0]!, artist: "Ветер" } };
+  localStorage.setItem(
+    "thule.player",
+    JSON.stringify({ v: 3, queue: { items: [item], current: 0, unshuffled: null } }),
+  );
+  expect(loadSaved()).toBeNull();
+  const unknownKey = { items: [{ key: "a", track: TRACKS[0] }], current: 0, unshuffled: ["b"] };
+  localStorage.setItem("thule.player", JSON.stringify({ v: 3, queue: unknownKey }));
+  expect(loadSaved()).toBeNull();
+});
+
 test("the volume is kept for the device", () => {
   const { player } = setup();
   player.setVolume(0.4);

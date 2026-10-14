@@ -67,8 +67,8 @@ export interface Saved {
 export interface Deps {
   audio: AudioLike;
   streamUrl(trackId: string, quality: Quality): Promise<StreamUrl>;
-  /** Records a play of the track (scrobble). */
-  scrobble(trackId: string, listenedMs: number): Promise<void>;
+  /** Records a play of the track (scrobble), started at `playedAt` (ISO). */
+  scrobble(trackId: string, listenedMs: number, playedAt: string): Promise<void>;
   /** The quality the user picked. */
   quality(): Quality;
   now?(): number;
@@ -111,6 +111,9 @@ export interface Player {
   setMuted(muted: boolean): void;
   /** Plays the current track at the chosen quality, if it isn't already. */
   applyQuality(): void;
+  /** Plays on if a track stopped because the server couldn't be reached while it played
+   * (the connection is back). */
+  retryStalled(): void;
   /** Restores a saved queue, paused. */
   restore(saved: Saved): void;
   /** Stops and empties the queue (signing out). */
@@ -126,6 +129,10 @@ export const RESTART_AFTER = 3;
 const EXPIRY_MARGIN = 60_000;
 /** Tracks that fail in a row before the player gives up skipping. */
 const MAX_FAILURES = 3;
+/** Answers that say the track itself can't be played: it is skipped. Any other (the server
+ * restarting behind its proxy, busy, a session to renew) is the server's, for now: the
+ * player stops at the track and plays on when asked, or when the connection is back. */
+const UNPLAYABLE = new Set(["track_not_found", "audio_file_missing"]);
 /** Larger jumps of the playhead between time updates are seeks, not listening. */
 const MAX_TICK = 2;
 
@@ -164,8 +171,19 @@ export function createPlayer(deps: Deps): Player {
   let failures = 0;
   // Pauses the player makes itself while switching tracks: not the user's.
   let ownPause = false;
-  // Listening to the current item, for the scrobble.
-  let listen = { key: "", seconds: 0, at: 0, scrobbled: false };
+  // Listening to the current item, for the scrobble: since when (ms), for how long.
+  let listen = { key: "", seconds: 0, at: 0, scrobbled: false, since: 0 };
+  // The item that stopped for want of the server while playing (see retryStalled).
+  let stalled: string | null = null;
+  // The next item's stream URL, asked for while the current one plays: the next track then
+  // starts at once, within the "ended" event (which phones require to keep playing). `url`
+  // once it came; null until then, or if it didn't (asked again when it is its turn).
+  let prefetched: {
+    trackId: string;
+    quality: Quality;
+    url: StreamUrl | null;
+    pending: Promise<StreamUrl | null>;
+  } | null = null;
 
   audio.preload = "auto";
 
@@ -181,12 +199,45 @@ export function createPlayer(deps: Deps): Player {
   }
 
   function startListening(key: string, at: number) {
-    listen = { key, seconds: 0, at, scrobbled: false };
+    listen = { key, seconds: 0, at, scrobbled: false, since: now() };
+  }
+
+  /** The prefetched URL for this track and quality: at once if it came, or on its way. */
+  function takePrefetched(trackId: string, quality: Quality) {
+    const found = prefetched;
+    if (!found || found.trackId !== trackId || found.quality !== quality) return null;
+    prefetched = null;
+    return found.url ?? found.pending;
+  }
+
+  /** The URL if it is still good for a while. */
+  const fresh = (url: StreamUrl | null) =>
+    url && Date.parse(url.expires_at) - EXPIRY_MARGIN > now() ? url : null;
+
+  function prefetchNext() {
+    const { queue: q, repeat } = get();
+    if (repeat === "one") return;
+    const next = currentItem(queue.step(q, 1, repeat === "all") ?? EMPTY_QUEUE);
+    const quality = wanted();
+    if (!next || (prefetched?.trackId === next.track.id && prefetched.quality === quality)) {
+      return;
+    }
+    const entry: NonNullable<typeof prefetched> = {
+      trackId: next.track.id,
+      quality,
+      url: null,
+      pending: deps.streamUrl(next.track.id, quality).then(
+        (url) => (entry.url = url),
+        () => null,
+      ),
+    };
+    prefetched = entry;
   }
 
   async function load(item: QueueItem, at: number, autoplay: boolean) {
     const id = ++loads;
     loaded = null;
+    stalled = null;
     silence();
     if (listen.key !== item.key) startListening(item.key, at);
     set({
@@ -197,16 +248,24 @@ export function createPlayer(deps: Deps): Player {
       stream: null,
     });
     const quality = wanted();
-    let url: StreamUrl;
-    try {
-      url = await deps.streamUrl(item.track.id, quality);
-    } catch (error) {
-      if (id !== loads) return;
-      // No answer (offline, or the page being reloaded or left) is not the track's fault:
-      // the player stops at it rather than skip through the queue.
-      if (error instanceof ApiFailure) fail(item);
-      else stall(item);
-      return;
+    const early = takePrefetched(item.track.id, quality);
+    let url = fresh(early instanceof Promise ? await early : early);
+    if (id !== loads) return;
+    if (!url) {
+      try {
+        url = await deps.streamUrl(item.track.id, quality);
+      } catch (error) {
+        if (id !== loads) return;
+        // Only an answer that the track can't be played skips it. No answer (offline, the
+        // page being reloaded or left) or the server's trouble stops at it instead: the
+        // queue isn't skipped through, nor its place lost.
+        if (error instanceof ApiFailure && error.code && UNPLAYABLE.has(error.code)) {
+          fail(item);
+        } else {
+          stall(item, autoplay);
+        }
+        return;
+      }
     }
     if (id !== loads) return;
     loaded = { key: item.key, expiresAt: Date.parse(url.expires_at), quality };
@@ -243,6 +302,10 @@ export function createPlayer(deps: Deps): Player {
   }
 
   function pause() {
+    // A stream on its way is dropped when it arrives: paused means paused. Play loads it
+    // again, from the same place.
+    if (loaded === null) loads += 1;
+    stalled = null;
     set({ playing: false, buffering: false });
     audio.pause();
   }
@@ -274,9 +337,11 @@ export function createPlayer(deps: Deps): Player {
     }
   }
 
-  /** Stops at `item`, which couldn't be loaded for now; playing again retries it. */
-  function stall(item: QueueItem) {
+  /** Stops at `item`, which couldn't be loaded for now; playing again retries it, and so
+   * does the connection coming back if it was playing. */
+  function stall(item: QueueItem, wasPlaying: boolean) {
     loaded = null;
+    stalled = wasPlaying ? item.key : null;
     set({ playing: false, buffering: false, failed: item.track });
   }
 
@@ -303,6 +368,9 @@ export function createPlayer(deps: Deps): Player {
     }
     const next = queue.step(q, 1, repeat === "all");
     if (next) {
+      // Heard to the end: the next item is a new listen, even the same one again (a queue of
+      // one track on repeat all).
+      listen.key = "";
       go(next);
       return;
     }
@@ -331,8 +399,11 @@ export function createPlayer(deps: Deps): Player {
       const threshold = length > 0 ? Math.min(SCROBBLE_AFTER, length / 2) : SCROBBLE_AFTER;
       if (!listen.scrobbled && listen.seconds >= threshold) {
         listen.scrobbled = true;
-        deps.scrobble(item.track.id, Math.round(listen.seconds * 1000)).catch(() => {});
+        const playedAt = new Date(listen.since).toISOString();
+        deps.scrobble(item.track.id, Math.round(listen.seconds * 1000), playedAt).catch(() => {});
       }
+      // The queue may have changed since the track started: what comes next now.
+      prefetchNext();
     }
     set({ position: time });
   }
@@ -380,6 +451,8 @@ export function createPlayer(deps: Deps): Player {
   function reset() {
     loads += 1;
     loaded = null;
+    stalled = null;
+    prefetched = null;
     silence();
     audio.removeAttribute("src");
     audio.load();
@@ -473,6 +546,9 @@ export function createPlayer(deps: Deps): Player {
       if (item && live() && loaded?.quality !== wanted()) {
         void load(item, audio.currentTime, get().playing);
       }
+    },
+    retryStalled() {
+      if (stalled !== null && stalled === current()?.key) resume();
     },
     restore(saved) {
       const item = currentItem(saved.queue);

@@ -30,14 +30,38 @@ export function Slider({
   className,
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
+  // Moved since the last commit.
+  const moved = useRef(false);
 
-  // React's onChange fires while dragging; the native change event, once let go.
+  // React's onChange fires while dragging; the native change event, once let go. A drag
+  // that ends without one (cancelled by a scroll on a phone, let go outside the window)
+  // commits where it got to: the value doesn't stay held.
   useEffect(() => {
     const element = input.current;
     if (!element || !onCommit) return;
-    const commit = () => onCommit(Number(element.value));
+    const commit = () => {
+      moved.current = false;
+      onCommit(Number(element.value));
+    };
+    const settle = () => {
+      if (moved.current) commit();
+    };
+    // After the change event a release brings, if it does.
+    const released = () => setTimeout(settle);
+    const pressed = () => {
+      window.addEventListener("pointerup", released, { once: true });
+      window.addEventListener("pointercancel", released, { once: true });
+    };
     element.addEventListener("change", commit);
-    return () => element.removeEventListener("change", commit);
+    element.addEventListener("pointerdown", pressed);
+    element.addEventListener("blur", settle);
+    return () => {
+      element.removeEventListener("change", commit);
+      element.removeEventListener("pointerdown", pressed);
+      element.removeEventListener("blur", settle);
+      window.removeEventListener("pointerup", released);
+      window.removeEventListener("pointercancel", released);
+    };
   }, [onCommit]);
 
   const fill = max > 0 ? Math.min(Math.max(value / max, 0), 1) * 100 : 0;
@@ -54,7 +78,10 @@ export function Slider({
       step={step}
       value={value}
       disabled={disabled}
-      onChange={(event) => onInput(Number(event.target.value))}
+      onChange={(event) => {
+        moved.current = true;
+        onInput(Number(event.target.value));
+      }}
     />
   );
 }

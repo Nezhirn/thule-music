@@ -25,6 +25,7 @@ export function PlayButton({ source, name, tracks, size = "lg", className }: Pro
     (state) => state.source?.type === source.type && state.source.id === source.id,
   );
   const playing = usePlayer((state) => state.playing) && current;
+  const waiting = usePlayer((state) => state.playing && state.buffering) && current;
   const [loading, setLoading] = useState(false);
 
   const onClick = async () => {
@@ -48,7 +49,7 @@ export function PlayButton({ source, name, tracks, size = "lg", className }: Pro
       label={playing ? t.player.pause : t.player.playItem(name)}
       size={size}
       primary
-      aria-busy={loading || undefined}
+      aria-busy={loading || waiting || undefined}
       data-playing={playing || undefined}
       className={[styles.play, className].filter(Boolean).join(" ")}
       onClick={() => void onClick()}

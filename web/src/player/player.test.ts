@@ -19,7 +19,7 @@ function setup({ opus = true } = {}) {
   const audio = new FakeAudio();
   audio.opus = opus;
   const requests: { track: string; quality: Quality }[] = [];
-  const scrobbles: { track: string; ms: number }[] = [];
+  const scrobbles: { track: string; ms: number; at?: string }[] = [];
   let quality: Quality = "high";
   let now = Date.parse("2026-10-13T10:00:00Z");
   let streamUrl = async (trackId: string, wanted: Quality): Promise<StreamUrl> => {
@@ -35,8 +35,8 @@ function setup({ opus = true } = {}) {
   const player = createPlayer({
     audio: audio.asAudio(),
     streamUrl: (trackId, wanted) => streamUrl(trackId, wanted),
-    scrobble: async (trackId, ms) => {
-      scrobbles.push({ track: trackId, ms });
+    scrobble: async (trackId, ms, at) => {
+      scrobbles.push({ track: trackId, ms, at });
     },
     quality: () => quality,
     now: () => now,
@@ -151,7 +151,7 @@ test("next and previous by hand; previous restarts a track after 3 seconds", asy
 });
 
 test("scrobbles once after 30 seconds of listening, or half of a short track", async () => {
-  const { audio, player, scrobbles } = setup();
+  const { audio, player, scrobbles, later } = setup();
   const short = track("Short", ALBUM, [WIND], { duration_ms: 40_000 });
   player.play([A, short]);
   await settle();
@@ -163,15 +163,17 @@ test("scrobbles once after 30 seconds of listening, or half of a short track", a
   audio.advance(159.75);
   expect(scrobbles).toEqual([]);
   audio.advance(160);
-  expect(scrobbles).toEqual([{ track: A.id, ms: 30_000 }]);
+  // With when it was started: a play sent later lands where it belongs in the history.
+  expect(scrobbles).toEqual([{ track: A.id, ms: 30_000, at: "2026-10-13T10:00:00.000Z" }]);
   audio.advance(186);
   expect(scrobbles).toHaveLength(1);
 
+  later(187_000);
   audio.finish();
   await settle();
   audio.start(40);
   audio.advance(20);
-  expect(scrobbles.at(-1)).toEqual({ track: short.id, ms: 20_000 });
+  expect(scrobbles.at(-1)).toEqual({ track: short.id, ms: 20_000, at: "2026-10-13T10:03:07.000Z" });
 });
 
 test("a repeated track counts again; a paused one doesn't count", async () => {
@@ -201,8 +203,7 @@ test("a broken stream is renewed once, then skipped", async () => {
   audio.fail();
   await settle();
   // Renewed at the same place, still playing.
-  expect(requests).toHaveLength(2);
-  expect(requests[1]?.track).toBe(A.id);
+  expect(requests.filter((request) => request.track === A.id)).toHaveLength(2);
   expect(audio.currentTime).toBe(42);
   expect(audio.paused).toBe(false);
   audio.fail();
@@ -256,6 +257,134 @@ test("without an answer from the server it stops at the track instead of skippin
   await settle();
   expect(audio.src).toContain(`/stream/${A.id}`);
   expect(audio.paused).toBe(false);
+});
+
+test("the next track's stream is asked for while one plays, and starts at its end at once", async () => {
+  const { audio, player, requests } = setup();
+  player.play(TRACKS);
+  await settle();
+  audio.start(187);
+  audio.advance(1);
+  expect(requests.map((request) => request.track)).toEqual([A.id, B.id]);
+  await settle();
+  audio.advance(10);
+  expect(requests).toHaveLength(2);
+  audio.finish();
+  // Within the "ended" event, no waiting for the server: phones keep playing then.
+  expect(audio.src).toContain(`/stream/${B.id}`);
+  expect(audio.paused).toBe(false);
+  expect(requests).toHaveLength(2);
+});
+
+test("a queue changed while a track plays prefetches what now comes next", async () => {
+  const { audio, player, requests, playing } = setup();
+  player.play([A, B]);
+  await settle();
+  audio.start(187);
+  audio.advance(1);
+  player.playNext([C]);
+  audio.advance(2);
+  await settle();
+  expect(requests.map((request) => request.track)).toEqual([A.id, B.id, C.id]);
+  audio.finish();
+  expect(playing()).toBe("C");
+  expect(audio.src).toContain(`/stream/${C.id}`);
+  expect(requests).toHaveLength(3);
+});
+
+test("a prefetched URL that expired meanwhile is asked for again", async () => {
+  const { audio, player, requests, later, playing } = setup();
+  player.play(TRACKS);
+  await settle();
+  audio.start(187);
+  audio.advance(1);
+  await settle();
+  player.pause();
+  later(6 * HOUR);
+  player.next();
+  await settle();
+  expect(playing()).toBe("B");
+  expect(requests.map((request) => request.track)).toEqual([A.id, B.id, B.id]);
+  expect(audio.src).toContain("n=3");
+});
+
+test("paused while the stream URL is on its way: it stays paused when it comes", async () => {
+  const { audio, player, state, replaceStreamUrl } = setup();
+  const pending: ((url: StreamUrl) => void)[] = [];
+  replaceStreamUrl(() => new Promise((resolve) => pending.push(resolve)));
+  player.play([A]);
+  player.pause();
+  pending[0]!({
+    url: `/stream/${A.id}`,
+    quality: "high",
+    codec: "opus",
+    bitrate: 160,
+    expires_at: "2026-10-13T16:00:00Z",
+  });
+  await settle();
+  expect(audio.paused).toBe(true);
+  expect(state().playing).toBe(false);
+  // Play asks again.
+  player.resume();
+  expect(pending).toHaveLength(2);
+  expect(state().playing).toBe(true);
+});
+
+test("the server's trouble stops at the track; it plays on when the connection is back", async () => {
+  // A 502 from the proxy while the server restarts: the queue isn't skipped through.
+  const { audio, player, state, requests, playing, replaceStreamUrl } = setup();
+  const working = async (trackId: string): Promise<StreamUrl> => {
+    requests.push({ track: trackId, quality: "high" });
+    return {
+      url: `/stream/${trackId}`,
+      quality: "high",
+      codec: "opus",
+      bitrate: 160,
+      expires_at: "2026-10-13T16:00:00Z",
+    };
+  };
+  replaceStreamUrl(working);
+  player.play(TRACKS);
+  await settle();
+  audio.start(187);
+  audio.advance(42);
+  replaceStreamUrl((trackId) => {
+    requests.push({ track: trackId, quality: "high" });
+    return Promise.reject(new ApiFailure(new Response(null, { status: 502 }), null));
+  });
+  audio.fail(); // the stream breaks; renewing it fails too
+  await settle();
+  expect(playing()).toBe("A");
+  expect(state().playing).toBe(false);
+  expect(state().position).toBe(42);
+
+  // Retried only for a track that stopped so: not one paused since.
+  replaceStreamUrl(working);
+  player.retryStalled();
+  await settle();
+  expect(playing()).toBe("A");
+  expect(audio.src).toBe(`/stream/${A.id}`);
+  expect(audio.currentTime).toBe(42);
+  expect(audio.paused).toBe(false);
+  const asked = requests.length;
+  player.pause();
+  player.retryStalled();
+  await settle();
+  expect(requests).toHaveLength(asked);
+  expect(audio.paused).toBe(true);
+});
+
+test("a single track on repeat all counts each time it is heard", async () => {
+  const { audio, player, scrobbles } = setup();
+  player.play([A]);
+  player.setRepeat("all");
+  await settle();
+  audio.start(187);
+  audio.finish();
+  await settle();
+  audio.start(187);
+  audio.advance(31);
+  expect(scrobbles.map((scrobble) => scrobble.track)).toEqual([A.id, A.id]);
 });
 
 test("renews an expired stream URL before playing on", async () => {

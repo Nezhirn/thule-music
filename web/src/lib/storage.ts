@@ -5,23 +5,35 @@ const memory = new Map<string, string>();
 export const storage = {
   get(key: string): string | null {
     try {
-      return localStorage.getItem(key);
+      return localStorage.getItem(key) ?? memory.get(key) ?? null;
     } catch {
       return memory.get(key) ?? null;
     }
   },
-  set(key: string, value: string): void {
+  /** False when the browser refused it (full, or no storage at all): kept in memory for
+   * this page only, and what the browser held before for `key` is removed, so a later load
+   * doesn't read an older value as current. */
+  set(key: string, value: string): boolean {
     try {
       localStorage.setItem(key, value);
+      memory.delete(key);
+      return true;
     } catch {
       memory.set(key, value);
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // no storage at all
+      }
+      return false;
     }
   },
   remove(key: string): void {
+    memory.delete(key);
     try {
       localStorage.removeItem(key);
     } catch {
-      memory.delete(key);
+      // no storage at all
     }
   },
 };

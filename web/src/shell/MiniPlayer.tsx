@@ -14,6 +14,7 @@ export function MiniPlayer({ onOpen }: { onOpen(): void }) {
   const player = usePlayerControls();
   const track = usePlayer(selectTrack);
   const playing = usePlayer((state) => state.playing);
+  const waiting = usePlayer((state) => state.playing && state.buffering);
   const progress = usePlayer((state) =>
     state.duration > 0 ? Math.min(state.position / state.duration, 1) : 0,
   );
@@ -37,6 +38,7 @@ export function MiniPlayer({ onOpen }: { onOpen(): void }) {
       <IconButton
         icon={playing ? Pause : Play}
         label={playing ? t.player.pause : t.player.play}
+        aria-busy={waiting || undefined}
         className={styles.play}
         onClick={() => player.toggle()}
       />

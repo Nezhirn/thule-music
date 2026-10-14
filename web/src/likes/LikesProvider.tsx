@@ -4,6 +4,8 @@ import { api } from "../api/client";
 import { unwrap } from "../api/errors";
 import { useSession } from "../auth/session";
 import { usePlayerControls } from "../player/context";
+import { refreshLater } from "../queryClient";
+import { dropFromLists, patchLiked } from "./cache";
 import { LikesContext } from "./context";
 import { createLikes, type LikeKind } from "./likes";
 
@@ -20,9 +22,11 @@ export function LikesProvider({ children }: { children: ReactNode }) {
         // The queue kept on the device remembers it over a reload.
         if (kind === "track") player.updateTrack(id, { liked });
       },
-      saved(kind) {
-        // Liked songs, Favourites.
-        void queryClient.invalidateQueries({ queryKey: ["likes", kind] });
+      saved(kind, id, liked) {
+        patchLiked(queryClient, id, liked);
+        // Liked songs, Favourites: without it at once, with it on the next visit.
+        if (!liked) dropFromLists(queryClient, ["likes", kind], id);
+        refreshLater(queryClient, ["likes", kind]);
       },
     }),
   );

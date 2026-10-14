@@ -77,6 +77,20 @@ test("the album's play button plays it, and the player shows what plays", async 
   expect(within(row).getByText("Рассвет")).toBeInTheDocument();
 });
 
+test("the play button shows that it waits for the stream", async () => {
+  const { user, audio, bar } = setup();
+  await user.click(await screen.findByRole("button", { name: "Play Тихие города" }));
+  await waitFor(() => expect(audio.src).not.toBe(""));
+  const pause = within(bar()).getByRole("button", { name: "Pause" });
+  expect(pause).toHaveAttribute("aria-busy", "true");
+  act(() => audio.start(187));
+  expect(pause).not.toHaveAttribute("aria-busy");
+  act(() => audio.emit("waiting"));
+  expect(pause).toHaveAttribute("aria-busy", "true");
+  await user.click(pause);
+  expect(within(bar()).getByRole("button", { name: "Play" })).not.toHaveAttribute("aria-busy");
+});
+
 test("a row plays from its track; the menu queues tracks", async () => {
   const { user, audio, nowPlaying } = setup();
   await user.click(await screen.findByRole("button", { name: "Play Полдень" }));
@@ -119,6 +133,20 @@ test("controls: next, seek, shuffle, repeat, volume", async () => {
   fireEvent.change(position, { target: { value: "90" } });
   expect(audio.currentTime).toBe(90);
   expect(position).toHaveAttribute("aria-valuetext", "1:30 of 3:07");
+  // A drag the browser cancels (a scroll on a phone) seeks where it got to, without the
+  // change event.
+  fireEvent.pointerDown(position);
+  fireEvent.input(position, { target: { value: "120" } });
+  expect(position).toHaveAttribute("aria-valuetext", "2:00 of 3:07");
+  expect(audio.currentTime).toBe(90);
+  fireEvent.pointerCancel(window);
+  await waitFor(() => expect(audio.currentTime).toBe(120));
+  // One held when the track changes isn't shown on the next one.
+  fireEvent.input(position, { target: { value: "150" } });
+  await user.click(within(bar()).getByRole("button", { name: "Next" }));
+  await waitFor(() => expect(audio.src).toContain(DUSK.id));
+  expect(position).toHaveAttribute("aria-valuetext", "0:00 of 3:07");
+  act(() => audio.start(187));
 
   const shuffle = within(bar()).getByRole("button", { name: "Shuffle" });
   await user.click(shuffle);
@@ -161,7 +189,11 @@ test("plays at the quality from the settings, and records a play after 30 second
   });
   expect(plays).toEqual([]);
   act(() => audio.advance(30));
-  await waitFor(() => expect(plays).toEqual([{ track_id: DAWN.id, listened_ms: 30_000 }]));
+  await waitFor(() =>
+    expect(plays).toEqual([
+      { track_id: DAWN.id, listened_ms: 30_000, played_at: expect.any(String) as string },
+    ]),
+  );
 });
 
 test("space plays and pauses, unless a control has the focus", async () => {

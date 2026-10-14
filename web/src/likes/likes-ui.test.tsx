@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { Schemas } from "../api/client";
 import { mockAccount, renderSignedIn } from "../test/account";
@@ -59,6 +59,18 @@ test("a heart likes a track at once; Liked songs has it, and unliking takes it o
   expect(status()).toHaveTextContent("Рассвет is no longer in Liked songs");
   expect(await screen.findByText("No liked songs yet")).toBeInTheDocument();
   expect(state.calls).toEqual([`PUT track ${DAWN.id}`, `DELETE track ${DAWN.id}`]);
+});
+
+test("once saved, a like is the page's: one undone on another device shows when it loads", async () => {
+  const { state } = setup();
+  const { user, queryClient } = renderSignedIn(`/albums/${QUIET.id}`);
+  const heart = await screen.findByRole("button", { name: "Like Рассвет" });
+  await user.click(heart);
+  await waitFor(() => expect(state.calls).toEqual([`PUT track ${DAWN.id}`]));
+  expect(heart).toHaveAttribute("aria-pressed", "true");
+  // Unliked on the phone meanwhile: the album page loads again and says so.
+  await act(() => queryClient.invalidateQueries({ queryKey: ["album", QUIET.id] }));
+  await waitFor(() => expect(heart).toHaveAttribute("aria-pressed", "false"));
 });
 
 test("the track's menu likes and unlikes it too", async () => {

@@ -12,6 +12,7 @@ export function Controls({ large }: { large?: boolean }) {
   const { t } = useI18n();
   const player = usePlayerControls();
   const playing = usePlayer((state) => state.playing);
+  const waiting = usePlayer((state) => state.playing && state.buffering);
   const shuffle = usePlayer((state) => state.queue.unshuffled !== null);
   const repeat = usePlayer((state) => state.repeat);
   const loaded = usePlayer((state) => state.queue.current !== -1);
@@ -44,6 +45,7 @@ export function Controls({ large }: { large?: boolean }) {
         label={playing ? t.player.pause : t.player.play}
         size="lg"
         primary
+        aria-busy={waiting || undefined}
         className={`${styles.play} ${large ? styles.playLarge : ""}`}
         disabled={!loaded}
         onClick={() => player.toggle()}
