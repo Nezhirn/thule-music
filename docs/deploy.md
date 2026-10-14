@@ -146,11 +146,24 @@ docker compose logs -f server worker
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
+## Забытый пароль и блокировка входа
+
+После 10 неудачных попыток за 15 минут вход под этим именем закрыт на четверть часа. Открыть его сразу или задать пароль, если администратор свой забыл, можно с сервера:
+
+```bash
+docker compose exec server thule unlock admin
+docker compose exec server thule reset-password admin   # спросит новый пароль
+echo 'новый-пароль' | docker compose exec -T server thule reset-password admin
+```
+
+`reset-password` выходит из аккаунта на всех устройствах и тоже снимает блокировку.
+
 ## Без Docker
 
 Сервер ставится как обычный Python-пакет (см. [development.md](development.md#бэкенд)), веб-клиент собирается `npm run build` в `web/dist`. Команды:
 - `thule serve` — приложение и API, с `THULE_WEB_PATH=…/web/dist`;
 - `thule worker` — фоновые задачи;
-- `thule migrate` — только миграции.
+- `thule migrate` — только миграции;
+- `thule reset-password <имя>` и `thule unlock <имя>` — пароль и блокировка входа (см. выше).
 
 Нужны ffmpeg и Postgres.

@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { meQuery, preferencesQuery } from "./queries";
 import { SessionContext, type Session, type SessionStatus } from "./session";
 import * as tokens from "./tokens";
+import { timeoutSignal } from "../lib/timeout";
 
 interface State {
   status: SessionStatus;
@@ -88,7 +89,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       async signIn(username, password) {
-        const pair = await unwrap(api.POST("/api/v1/auth/login", { body: { username, password } }));
+        const pair = await unwrap(
+          api.POST("/api/v1/auth/login", {
+            body: { username, password },
+            signal: timeoutSignal(tokens.AUTH_TIMEOUT_MS),
+          }),
+        );
         tokens.startSession(pair);
         await load();
         setState({ status: "authenticated", ended: null });

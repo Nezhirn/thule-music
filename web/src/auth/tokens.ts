@@ -6,11 +6,14 @@
 // overlap. Within a tab callers share one promise; across tabs a Web Lock serialises them,
 // and the token is read from storage inside the lock, since another tab may have rotated it.
 // Web Locks exist only in secure contexts (HTTPS, localhost). Over plain HTTP two tabs can
-// still collide: the server then answers `refresh_token_rotated` (a replay within seconds
-// is not treated as theft) and the losing tab waits for the winner to store the new token.
+// still collide: the server then answers the second with the same new token, or, if the
+// first already used it, `refresh_token_rotated` (a replay within seconds is not treated as
+// theft) and the losing tab waits for the winner to store the token. A renewal whose answer
+// was lost (the page closed, the network gone) is answered the same way when tried again.
 import { newClient, type Schemas } from "../api/base";
 import { ApiFailure } from "../api/errors";
 import { storage } from "../lib/storage";
+import { timeoutSignal } from "../lib/timeout";
 
 export const REFRESH_TOKEN_KEY = "thule.refreshToken";
 const LOCK_NAME = "thule.refresh";
@@ -18,6 +21,10 @@ const LOCK_NAME = "thule.refresh";
 const EXPIRY_MARGIN_MS = 30_000;
 // How long a tab that lost a refresh race waits for the winner to store the new token.
 const HANDOVER_TIMEOUT_MS = 5_000;
+// A sign-in or token renewal the server doesn't answer within this is given up, as if the
+// server were unreachable: a request hanging on a dead connection would otherwise hold the
+// renewal every tab waits on. The session stays: the server answers the same token again.
+export const AUTH_TIMEOUT_MS = 15_000;
 
 /** Why a session ended: signed out (here or in another tab), expired or revoked by the
  * server, or ended everywhere because a stolen token was detected. */
@@ -62,7 +69,12 @@ export async function signOut(): Promise<void> {
     const token = storage.get(REFRESH_TOKEN_KEY);
     end("signed-out");
     if (token !== null) {
-      await auth.POST("/api/v1/auth/logout", { body: { refresh_token: token } }).catch(() => {});
+      await auth
+        .POST("/api/v1/auth/logout", {
+          body: { refresh_token: token },
+          signal: timeoutSignal(AUTH_TIMEOUT_MS),
+        })
+        .catch(() => {});
     }
   });
 }
@@ -93,6 +105,7 @@ async function refresh(): Promise<string | null> {
   while (token !== null) {
     const { data, error, response } = await auth.POST("/api/v1/auth/refresh", {
       body: { refresh_token: token },
+      signal: timeoutSignal(AUTH_TIMEOUT_MS),
     });
     if (data) {
       startSession(data);

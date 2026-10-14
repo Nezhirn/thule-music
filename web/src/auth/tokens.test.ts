@@ -1,7 +1,8 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { apiError, tokenPair, url } from "../test/api";
 import { server } from "../test/server";
 import {
+  AUTH_TIMEOUT_MS,
   getAccessToken,
   REFRESH_TOKEN_KEY,
   renewAccessToken,
@@ -88,6 +89,20 @@ test("an unreachable server keeps the session", async () => {
   server.use(http.post(url("/api/v1/auth/refresh"), () => HttpResponse.error()));
   await expect(getAccessToken()).rejects.toThrow();
   expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe("refresh-0");
+});
+
+test("a renewal the server never answers is given up, and the session kept", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  localStorage.setItem(REFRESH_TOKEN_KEY, "refresh-0");
+  server.use(http.post(url("/api/v1/auth/refresh"), () => delay("infinite")));
+  const renewal = getAccessToken();
+  const failed = expect(renewal).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS + 100);
+  await failed;
+  expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe("refresh-0");
+  // Not held by the hung request: the next renewal goes through.
+  refreshServer();
+  expect(await getAccessToken()).toBe("access-1");
 });
 
 test.each([

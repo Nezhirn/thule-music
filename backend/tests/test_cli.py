@@ -1,6 +1,7 @@
 """Getting the server ready in production: settings, the database, migrations, folders."""
 
 import asyncio
+import io
 import logging
 import subprocess
 import sys
@@ -10,7 +11,15 @@ import pytest
 from sqlalchemy import make_url, text
 from sqlalchemy.pool import NullPool
 
-from app.cli import check_folders, load_settings, migrate, wait_for_database
+from app.cli import (
+    check_folders,
+    load_settings,
+    migrate,
+    read_password,
+    reset_password,
+    unlock_user,
+    wait_for_database,
+)
 from app.config import Settings, get_settings
 from app.db import make_engine
 from tests.conftest import BACKEND_DIR, TEST_SCHEMA
@@ -126,3 +135,31 @@ def test_an_empty_music_folder_is_warned_about(settings, caplog):
     with caplog.at_level(logging.WARNING, logger="thule"):
         check_folders(settings)
     assert "is empty: if the music is on a disk, is it mounted?" in caplog.text
+
+
+async def test_a_forgotten_or_locked_out_admin_gets_back_in(client, admin, settings, sessionmaker):
+    for _ in range(10):
+        await client.post("/auth/login", json={"username": "admin", "password": "wrong-one"})
+    locked = await client.post("/auth/login", json={"username": "admin", "password": "x"})
+    assert locked.json()["code"] == "too_many_login_attempts"
+
+    await unlock_user(settings, "admin")
+    back = {"username": "admin", "password": "admin-password"}
+    assert (await client.post("/auth/login", json=back)).status_code == 200
+
+    await reset_password(settings, "admin", "brand-new-password")
+    assert (await client.get("/auth/me", headers=admin)).status_code == 200  # access lives on
+    old = (await client.post("/auth/login", json=back)).json()
+    assert old["code"] == "invalid_credentials"
+    new = {"username": "admin", "password": "brand-new-password"}
+    assert (await client.post("/auth/login", json=new)).status_code == 200
+    with pytest.raises(SystemExit, match="No user 'nobody'"):
+        await unlock_user(settings, "nobody")
+
+
+def test_a_new_password_comes_from_standard_input(monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("long-enough-password\n"))
+    assert read_password() == "long-enough-password"
+    monkeypatch.setattr("sys.stdin", io.StringIO("short\n"))
+    with pytest.raises(SystemExit, match="at least 8"):
+        read_password()

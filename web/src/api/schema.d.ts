@@ -74,10 +74,13 @@ export interface paths {
         put?: never;
         /**
          * Refresh Tokens
-         * @description Rotates the refresh token. Presenting an already-rotated token is treated as
-         *     theft: every session of that user is revoked (unless it was rotated in the last
-         *     REFRESH_REUSE_GRACE: `refresh_token_rotated`). A token revoked by logout or a password
-         *     change is just rejected.
+         * @description Rotates the refresh token. The new one is derived from it: presenting the old one
+         *     again while the new one was never used (the answer lost: the page closed, the network
+         *     gone mid-exchange) gets the same answer again, instead of signing the user out. Once
+         *     the new one was used, the old one showing up again is treated as theft: every session
+         *     of that user is revoked (unless that use was in the last REFRESH_REUSE_GRACE:
+         *     `refresh_token_rotated`). A token revoked by logout or a password change is just
+         *     rejected.
          */
         post: operations["refresh_tokens"];
         delete?: never;

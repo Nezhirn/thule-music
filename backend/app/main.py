@@ -1,9 +1,11 @@
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.auth.router import router as auth_router
 from app.auth.router import users_router
@@ -25,6 +27,19 @@ from app.web import WebApp
 
 API_ROOT = "/api"
 API_PREFIX = f"{API_ROOT}/v1"
+
+
+class RequestClock:
+    """Notes when each request came in (`request.state.started_at`): what was valid then
+    stays valid for it (see deps.get_optional_user)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            scope.setdefault("state", {})["started_at"] = time.time()
+        await self.app(scope, receive, send)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -62,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     install_error_handlers(app)
+    app.add_middleware(RequestClock)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

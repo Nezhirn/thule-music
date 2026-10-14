@@ -1,3 +1,4 @@
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -34,7 +35,18 @@ def _unauthorized(code: ErrorCode, detail: str | None = None) -> ApiError:
     return ApiError(code, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
+# A request may take this long and still count its token as valid when it started.
+MAX_REQUEST_AGE_SECONDS = 6 * 3600
+
+
+def request_age(request: Request) -> float:
+    """Seconds since the request came in (see RequestClock)."""
+    started = getattr(request.state, "started_at", None)
+    return min(max(time.time() - started, 0), MAX_REQUEST_AGE_SECONDS) if started else 0
+
+
 async def get_optional_user(
+    request: Request,
     session: SessionDep,
     settings: SettingsDep,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
@@ -42,7 +54,11 @@ async def get_optional_user(
     if creds is None:
         return None
     try:
-        payload = decode_access_token(creds.credentials, settings.secret_key)
+        # Valid when the request came in is enough: an upload's body is all read before the
+        # token is looked at, and a big file may take longer than the token lives.
+        payload = decode_access_token(
+            creds.credentials, settings.secret_key, leeway=request_age(request)
+        )
         user_id = uuid.UUID(payload["sub"])
     except (jwt.PyJWTError, ValueError) as exc:
         raise _unauthorized(ErrorCode.invalid_token) from exc

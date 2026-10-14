@@ -26,6 +26,7 @@ from app.auth.security import (
     hash_password,
     hash_refresh_token,
     new_refresh_token,
+    successor_refresh_token,
     verify_password,
 )
 from app.config import Settings
@@ -45,10 +46,11 @@ MAX_AVATAR_BYTES = 10 * 1024 * 1024
 MAX_LOGIN_FAILURES = 10
 LOGIN_FAILURE_WINDOW = timedelta(minutes=15)
 
-# A rotated refresh token presented again within this time is a race, not theft: another
-# tab of the same browser refreshing at the same moment (browsers allow cross-tab locks only
-# over HTTPS), or a retry after the response was lost. It is refused without ending every
-# session; the client picks up the new token its other tab stored.
+# A rotated refresh token presented again after what it was exchanged for was used, but
+# within this time, is a race, not theft: another tab of the same browser that exchanged it
+# and refreshed again meanwhile (browsers allow cross-tab locks only over HTTPS). It is
+# refused without ending every session; the client picks up the token its other tab stored.
+# (Presented again before its successor was used, it just gets that successor again.)
 REFRESH_REUSE_GRACE = timedelta(seconds=30)
 
 # Serialises registrations, so two concurrent first sign-ups can't both become admin.
@@ -63,16 +65,26 @@ async def _revoke_sessions(session: AsyncSession, user_id: uuid.UUID) -> None:
     )
 
 
-async def _issue_tokens(session: AsyncSession, settings: Settings, user: User) -> TokenPair:
-    raw, token_hash = new_refresh_token()
+async def _issue_tokens(
+    session: AsyncSession,
+    settings: Settings,
+    user: User,
+    refresh: tuple[str, str] | None = None,
+    *,
+    stored: bool = False,
+) -> TokenPair:
+    """A new access token, with the refresh token `refresh` (raw, hash; a new random one
+    if None), stored unless it already is."""
+    raw, token_hash = refresh or new_refresh_token()
     user.last_seen_at = utcnow()
-    session.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=utcnow() + timedelta(seconds=settings.refresh_token_ttl_seconds),
+    if not stored:
+        session.add(
+            RefreshToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=utcnow() + timedelta(seconds=settings.refresh_token_ttl_seconds),
+            )
         )
-    )
     await session.commit()
     access = create_access_token(
         user.id, user.role.value, settings.secret_key, settings.access_token_ttl_seconds
@@ -146,10 +158,13 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
 
 @router.post("/refresh", response_model=TokenPair)
 async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: SettingsDep) -> TokenPair:
-    """Rotates the refresh token. Presenting an already-rotated token is treated as
-    theft: every session of that user is revoked (unless it was rotated in the last
-    REFRESH_REUSE_GRACE: `refresh_token_rotated`). A token revoked by logout or a password
-    change is just rejected."""
+    """Rotates the refresh token. The new one is derived from it: presenting the old one
+    again while the new one was never used (the answer lost: the page closed, the network
+    gone mid-exchange) gets the same answer again, instead of signing the user out. Once
+    the new one was used, the old one showing up again is treated as theft: every session
+    of that user is revoked (unless that use was in the last REFRESH_REUSE_GRACE:
+    `refresh_token_rotated`). A token revoked by logout or a password change is just
+    rejected."""
     token = await session.scalar(
         select(RefreshToken)
         .where(RefreshToken.token_hash == hash_refresh_token(body.refresh_token))
@@ -159,9 +174,23 @@ async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: Setting
         raise ApiError(ErrorCode.invalid_refresh_token)
 
     now = utcnow()
+    successor = successor_refresh_token(settings.secret_key, body.refresh_token)
     if token.revoked_at is not None:
         if not token.rotated:
             raise ApiError(ErrorCode.invalid_refresh_token)
+        exchanged_for = await session.scalar(
+            select(RefreshToken).where(RefreshToken.token_hash == successor[1]).with_for_update()
+        )
+        if (
+            exchanged_for is not None
+            and exchanged_for.revoked_at is None
+            and exchanged_for.expires_at > now
+        ):
+            # What it was exchanged for never came back: the same answer again.
+            user = await session.get(User, token.user_id)
+            if user is None:
+                raise ApiError(ErrorCode.invalid_refresh_token)
+            return await _issue_tokens(session, settings, user, successor, stored=True)
         if now - token.revoked_at < REFRESH_REUSE_GRACE:
             raise ApiError(ErrorCode.refresh_token_rotated)
         await _revoke_sessions(session, token.user_id)
@@ -175,7 +204,7 @@ async def refresh_tokens(body: RefreshIn, session: SessionDep, settings: Setting
         raise ApiError(ErrorCode.invalid_refresh_token)
     token.revoked_at = now
     token.rotated = True
-    return await _issue_tokens(session, settings, user)
+    return await _issue_tokens(session, settings, user, successor)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

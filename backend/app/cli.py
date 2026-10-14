@@ -11,6 +11,7 @@ see alembic/env.py) and check that the folders they write to can be written to.
 
 import argparse
 import asyncio
+import getpass
 import logging
 import os
 import signal
@@ -18,14 +19,18 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from pydantic import ValidationError
-from sqlalchemy import make_url, text
+from sqlalchemy import delete, make_url, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import NullPool
 
+from app.auth.models import LoginFailure, RefreshToken, User
+from app.auth.security import hash_password
 from app.config import Settings, get_settings
-from app.db import make_engine
+from app.db import make_engine, make_sessionmaker, utcnow
 from app.library.importer import library_is_empty
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -125,6 +130,57 @@ def check_folders(settings: Settings) -> None:
         )
 
 
+MIN_PASSWORD = 8
+
+
+def read_password() -> str:
+    """From a terminal, asked twice; otherwise the first line of standard input."""
+    if sys.stdin.isatty():
+        password = getpass.getpass("New password: ")
+        if getpass.getpass("Repeat it: ") != password:
+            raise SystemExit("The passwords differ")
+    else:
+        password = sys.stdin.readline().rstrip("\n")
+    if len(password) < MIN_PASSWORD:
+        raise SystemExit(f"A password has at least {MIN_PASSWORD} characters")
+    return password
+
+
+async def _on_user(
+    settings: Settings, username: str, change: Callable[[AsyncSession, User], Awaitable[None]]
+) -> None:
+    engine = make_engine(settings.database_url, settings.db_schema, poolclass=NullPool)
+    try:
+        async with make_sessionmaker(engine)() as session:
+            user = await session.scalar(select(User).where(User.username == username))
+            if user is None:
+                raise SystemExit(f"No user {username!r}")
+            await change(session, user)
+            await session.execute(delete(LoginFailure).where(LoginFailure.username == username))
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
+async def reset_password(settings: Settings, username: str, password: str) -> None:
+    async def change(session: AsyncSession, user: User) -> None:
+        user.password_hash = hash_password(password)
+        await session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=utcnow())
+        )
+
+    await _on_user(settings, username, change)
+
+
+async def unlock_user(settings: Settings, username: str) -> None:
+    async def change(session: AsyncSession, user: User) -> None:
+        pass  # the failed attempts go
+
+    await _on_user(settings, username, change)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="thule", description="Thule Music server")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -134,6 +190,16 @@ def main(argv: list[str] | None = None) -> None:
     worker = commands.add_parser("worker", help="background jobs")
     worker.add_argument("--concurrency", type=int, default=2)
     commands.add_parser("migrate", help="bring the database schema up to date and exit")
+    reset = commands.add_parser(
+        "reset-password",
+        help="set a user's password (a forgotten admin's too), signing them out everywhere; "
+        "the new one is read from standard input or asked for",
+    )
+    reset.add_argument("username")
+    unlock = commands.add_parser(
+        "unlock", help="let a user sign in again at once after too many failed attempts"
+    )
+    unlock.add_argument("username")
     args = parser.parse_args(argv)
     # In a container this is process 1, which the kernel doesn't stop on SIGTERM unless it
     # asks to be: `docker stop` while waiting for the database would wait for the kill.
@@ -147,6 +213,15 @@ def main(argv: list[str] | None = None) -> None:
     wait_for_database(settings)
     migrate()
     if args.command == "migrate":
+        return
+    if args.command == "reset-password":
+        password = read_password()
+        asyncio.run(reset_password(settings, args.username, password))
+        print(f"{args.username}: password set, signed out everywhere, sign-in unlocked")
+        return
+    if args.command == "unlock":
+        asyncio.run(unlock_user(settings, args.username))
+        print(f"{args.username}: can sign in again")
         return
     check_folders(settings)
 
