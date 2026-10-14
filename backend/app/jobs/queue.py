@@ -1,6 +1,6 @@
 """Postgres-backed job queue (`SELECT ... FOR UPDATE SKIP LOCKED`). No Redis needed."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, or_, select, text, update
@@ -10,13 +10,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import utcnow
 from app.jobs.models import Job, JobStatus
 
-# A running job whose worker died is re-queued after this long.
-STALE_AFTER = timedelta(minutes=30)
+# A running job's worker says it is alive this often (see the worker's heartbeat); a job
+# not heard of for STALE_AFTER had its worker die (killed, out of memory, the container
+# stopped) and is taken again.
+HEARTBEAT = timedelta(minutes=1)
+STALE_AFTER = timedelta(minutes=5)
 
 
 class PermanentFailure(Exception):
     """A failure that trying again won't fix, e.g. a file that is not audio: the job fails
     at once instead of being retried."""
+
+
+class Postpone(Exception):  # noqa: N818 - not an error: the job asks to run later
+    """Not now: something the job needs is away for a while (a web service down). The job
+    runs again at `until` without that counting as an attempt."""
+
+    def __init__(self, until: datetime, reason: str) -> None:
+        super().__init__(reason)
+        self.until = until
 
 
 # Skips a job whose dedupe_key is already queued or running.
@@ -106,10 +118,22 @@ async def claim(session: AsyncSession) -> Job | None:
     return job
 
 
+def _ours(job: Job) -> Any:
+    """The job as this worker claimed it: still running, and not claimed again since by
+    another worker that took it for dead (each claim counts an attempt)."""
+    return (Job.id == job.id) & (Job.status == JobStatus.running) & (Job.attempts == job.attempts)
+
+
+async def touch(session: AsyncSession, job: Job) -> None:
+    """The worker running the job is alive (see HEARTBEAT)."""
+    await session.execute(update(Job).where(_ours(job)).values(locked_at=utcnow()))
+    await session.commit()
+
+
 async def mark_done(session: AsyncSession, job: Job, result: dict[str, Any] | None = None) -> None:
     await session.execute(
         update(Job)
-        .where(Job.id == job.id)
+        .where(_ours(job))
         .values(
             status=JobStatus.done, finished_at=utcnow(), error=None, locked_at=None, result=result
         )
@@ -128,6 +152,25 @@ async def mark_failed(session: AsyncSession, job: Job, error: str, *, retry: boo
     else:
         values = {"status": JobStatus.failed, "finished_at": now}
     await session.execute(
-        update(Job).where(Job.id == job.id).values(error=error[:4000], locked_at=None, **values)
+        update(Job).where(_ours(job)).values(error=error[:4000], locked_at=None, **values)
+    )
+    await session.commit()
+
+
+async def put_back(
+    session: AsyncSession, job: Job, *, run_after: datetime | None = None, error: str | None = None
+) -> None:
+    """Back in the queue as it was before this attempt (its worker is stopping, or it asked
+    to run later): the attempt doesn't count."""
+    await session.execute(
+        update(Job)
+        .where(_ours(job))
+        .values(
+            status=JobStatus.queued,
+            attempts=Job.attempts - 1,
+            locked_at=None,
+            run_after=run_after or utcnow(),
+            error=error,
+        )
     )
     await session.commit()

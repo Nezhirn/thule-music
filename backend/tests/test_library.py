@@ -497,3 +497,22 @@ async def test_an_import_in_an_empty_library_folder_deletes_nothing(
     shutil.rmtree(settings.library_path / "A")
     await run_jobs()
     assert (await client.get("/tracks", headers=admin)).json()["total"] == 1
+
+
+async def test_an_albums_folder_cover_is_read_once_not_per_track(
+    client, admin, make_audio, run_jobs, monkeypatch
+):
+    reads = []
+    album_picture = importer._album_picture
+
+    def counted(root, paths):
+        reads.append(paths)
+        return album_picture(root, paths)
+
+    monkeypatch.setattr(importer, "_album_picture", counted)
+    for n in range(1, 5):
+        make_audio(f"F/{n}.flac", title=f"T{n}", artist="A", album="X", track=n, cover=(5, 6, 7))
+    await scan(client, admin, run_jobs)
+    assert len(reads) == 1
+    album = (await client.get("/albums", headers=admin)).json()["items"][0]
+    assert album["cover_id"]

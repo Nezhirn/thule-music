@@ -10,6 +10,7 @@ import re
 import time
 import uuid
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from stat import S_ISREG
@@ -231,12 +232,27 @@ def _album_picture(root: Path, paths: list[str]) -> tuple[bytes, str, float] | N
     return None
 
 
+def _folder_picture(root: Path, paths: list[str]) -> tuple[str, float] | None:
+    """The first folder image _album_picture would look at, and its mtime, unread."""
+    folders = list(dict.fromkeys(f for rel in paths for f in art_folders(posixpath.dirname(rel))))
+    for folder in folders:
+        image = folder_cover(resolve_in_library(root, folder or "."))
+        if image is None:
+            continue
+        try:
+            return posixpath.join(folder, image.name), image.stat().st_mtime
+        except OSError:
+            continue
+    return None
+
+
 async def choose_album_cover(
-    session: AsyncSession, library: Path, covers: Path, album: Album
+    session: AsyncSession, library: Path, covers: Path, album: Album, *, again: bool = False
 ) -> None:
     """Sets the album's cover from its current tracks (see _album_picture). Runs on every
     import of one of its tracks, and when a scan sees one of its folder images change. A
-    cover an admin chose is kept."""
+    cover an admin chose is kept. The same folder image as last time is not read again,
+    unless `again` (its files may be lost)."""
     # Locked until the commit: an admin choosing a cover meanwhile waits, then wins.
     await session.refresh(album, ["cover_custom"], with_for_update=True)
     if album.cover_custom:
@@ -249,6 +265,10 @@ async def choose_album_cover(
             .limit(ART_TRACKS)
         )
     )
+    if not again and album.cover_id is not None:
+        unchanged = (album.cover_source, album.cover_mtime)
+        if await asyncio.to_thread(_folder_picture, library, paths) == unchanged:
+            return
     found = await asyncio.to_thread(_album_picture, library, paths)
     cover = await store_cover(session, covers, found[0]) if found else None
     if found and cover:
@@ -281,20 +301,35 @@ async def refresh_album_cover(ctx: JobContext, payload: dict[str, Any]) -> None:
         if album is None:
             return
         await choose_album_cover(
-            session, ctx.settings.library_path, ctx.settings.covers_path, album
+            session, ctx.settings.library_path, ctx.settings.covers_path, album, again=True
         )
         await session.commit()
 
 
-async def delete_orphans(session: AsyncSession) -> None:
-    await session.execute(delete(Album).where(~exists().where(Track.album_id == Album.id)))
-    await session.execute(
-        delete(Artist).where(
-            ~exists().where(Track.artist_id == Artist.id),
-            ~exists().where(TrackArtist.artist_id == Artist.id),
-            ~exists().where(Album.artist_id == Artist.id),
+async def delete_orphans(
+    session: AsyncSession,
+    albums: Iterable[uuid.UUID] | None = None,
+    artists: Iterable[uuid.UUID] | None = None,
+) -> None:
+    """Deletes the albums and artists left without tracks: among `albums` and `artists`
+    when given (those a change may have emptied), else all of them."""
+    album_ids = None if albums is None else list(albums)
+    artist_ids = None if artists is None else list(artists)
+    if album_ids is None or album_ids:
+        only = [] if album_ids is None else [Album.id.in_(album_ids)]
+        await session.execute(
+            delete(Album).where(~exists().where(Track.album_id == Album.id), *only)
         )
-    )
+    if artist_ids is None or artist_ids:
+        only = [] if artist_ids is None else [Artist.id.in_(artist_ids)]
+        await session.execute(
+            delete(Artist).where(
+                ~exists().where(Track.artist_id == Artist.id),
+                ~exists().where(TrackArtist.artist_id == Artist.id),
+                ~exists().where(Album.artist_id == Artist.id),
+                *only,
+            )
+        )
 
 
 # Same tags but a duration further off than this: a different recording, not a moved file.
@@ -618,6 +653,9 @@ class Imported:
     album: Album
     # The album the track was in before, when it moved to another.
     previous_album_id: uuid.UUID | None
+    # The artists it had before (its own, the featured ones, its album's): who may be left
+    # without tracks. Empty for a new track.
+    previous_artist_ids: set[uuid.UUID]
     # Embedded lyrics, for fetch_lyrics.
     lyrics: str | None
 
@@ -643,9 +681,18 @@ async def import_file(session: AsyncSession, library: Path, rel: str) -> Importe
     album = await upsert_album(session, tags.album, album_artist_id, tags.year, tags.genre)
 
     track = await session.scalar(select(Track).where(Track.path == rel))
+    previous_artist_ids: set[uuid.UUID] = set()
     if track is None:
         track = Track(path=rel)
         session.add(track)
+    else:
+        previous_artist_ids = {
+            track.artist_id,
+            *await session.scalars(
+                select(TrackArtist.artist_id).where(TrackArtist.track_id == track.id)
+            ),
+            *await session.scalars(select(Album.artist_id).where(Album.id == track.album_id)),
+        }
     previous_album_id = track.album_id
     track.title = tags.title
     track.album_id = album.id
@@ -669,7 +716,7 @@ async def import_file(session: AsyncSession, library: Path, rel: str) -> Importe
         )
     )
     moved_from = previous_album_id if previous_album_id not in (None, album.id) else None
-    return Imported(track, album, moved_from, tags.lyrics)
+    return Imported(track, album, moved_from, previous_artist_ids, tags.lyrics)
 
 
 async def choose_covers(
@@ -680,14 +727,18 @@ async def choose_covers(
         await choose_album_cover(session, library, covers, album)
 
 
-async def queue_follow_ups(session: AsyncSession, imported: Imported, *, transcode: bool) -> None:
+async def queue_follow_ups(
+    session: AsyncSession, imported: Imported, *, transcode: bool, lyrics: bool = True
+) -> None:
     """The work an imported track needs: transcodes (unless only its tags changed) and a
-    lyrics lookup."""
+    lyrics lookup (unless what they are looked up by didn't change)."""
     track_id = str(imported.track.id)
     if transcode:
         await enqueue(
             session, "transcode", {"track_id": track_id}, dedupe_key=f"transcode:{track_id}"
         )
+    if not lyrics:
+        return
     await enqueue(
         session,
         "fetch_lyrics",
@@ -700,8 +751,13 @@ async def import_track(ctx: JobContext, payload: dict[str, Any]) -> None:
     rel: str = payload["path"]
     async with ctx.sessionmaker() as session:
         imported = await import_file(session, ctx.settings.library_path, rel)
-        # A re-import may move the track to another album; drop what that left empty.
-        await delete_orphans(session)
+        # A re-import may move the track to another album or artist; drop what that left
+        # empty. A new track empties nothing.
+        if imported is None:
+            await delete_orphans(session)
+        elif imported.previous_artist_ids:
+            moved_from = [imported.previous_album_id] if imported.previous_album_id else []
+            await delete_orphans(session, moved_from, imported.previous_artist_ids)
         if imported is not None:
             album_ids = {imported.album.id}
             if imported.previous_album_id is not None:

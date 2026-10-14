@@ -2,15 +2,18 @@
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
 from app.db import utcnow
 from app.jobs.context import JobContext
+from app.jobs.queue import Postpone
 from app.library.importer import resolve_in_library
 from app.library.models import Album, Track
 from app.library.tags import embedded_lyrics
@@ -18,6 +21,35 @@ from app.lyrics.lrc import is_synced, to_plain
 from app.lyrics.models import MANUAL, SIDECAR_SUFFIXES, Lyrics
 
 USER_AGENT = "thule-music/0.1 (self-hosted music server)"
+# LRCLIB not answering a connection gives up sooner than a slow answer.
+TIMEOUT = httpx.Timeout(15, connect=5)
+
+
+class _Breaker:
+    """LRCLIB unreachable, failing or asking to slow down: for a while (5 minutes, doubled up
+    to an hour while it stays so) lookups wait instead of each trying and failing, which
+    took the worker's turns from imports and transcodes and filled the failed jobs."""
+
+    FIRST = timedelta(minutes=5)
+    LONGEST = timedelta(hours=1)
+
+    def __init__(self) -> None:
+        self.until: datetime | None = None
+        self.pause = self.FIRST
+
+    def check(self) -> None:
+        if self.until is not None and utcnow() < self.until:
+            raise Postpone(self.until, "LRCLIB is unavailable for now")
+
+    def failed(self, wait: timedelta | None = None) -> None:
+        self.until = utcnow() + (wait or self.pause)
+        self.pause = min(self.pause * 2, self.LONGEST)
+
+    def worked(self) -> None:
+        self.until, self.pause = None, self.FIRST
+
+
+breaker = _Breaker()
 
 
 def from_text(text: str, source: str) -> dict[str, Any]:
@@ -31,18 +63,28 @@ def from_text(text: str, source: str) -> dict[str, Any]:
 
 
 async def _lrclib(ctx: JobContext, track: Track) -> dict[str, Any] | None:
+    """Raises Postpone while LRCLIB is unavailable (see _Breaker)."""
+    breaker.check()
     params: dict[str, str | int] = {
         "track_name": track.title,
         "artist_name": track.artist.name,
         "album_name": track.album.title,
         "duration": round(track.duration_ms / 1000),
     }
-    resp = await ctx.http.get(
-        f"{ctx.settings.lrclib_url.rstrip('/')}/api/get",
-        params=params,
-        headers={"User-Agent": USER_AGENT},
-        timeout=15,
-    )
+    try:
+        resp = await ctx.http.get(
+            f"{ctx.settings.lrclib_url.rstrip('/')}/api/get",
+            params=params,
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+    except httpx.TransportError as exc:
+        breaker.failed()
+        raise Postpone(breaker.until or utcnow(), f"LRCLIB unreachable: {exc!r}") from exc
+    if resp.status_code == 429 or resp.status_code >= 500:
+        breaker.failed(_retry_after(resp))
+        raise Postpone(breaker.until or utcnow(), f"LRCLIB answered {resp.status_code}")
+    breaker.worked()
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
@@ -55,6 +97,14 @@ async def _lrclib(ctx: JobContext, track: Track) -> dict[str, Any] | None:
         "instrumental": bool(data.get("instrumental")),
         "source": "lrclib",
     }
+
+
+def _retry_after(resp: httpx.Response) -> timedelta | None:
+    try:
+        seconds = int(resp.headers.get("retry-after", ""))
+    except ValueError:
+        return None
+    return timedelta(seconds=min(max(seconds, 1), 3600))
 
 
 def _read_embedded(path: Path) -> str | None:
@@ -101,8 +151,11 @@ async def fetch_lyrics(ctx: JobContext, payload: dict[str, Any]) -> None:
             if embedded:
                 found = from_text(embedded, "embedded")
         if found is None and ctx.settings.lrclib_enabled:
-            # Network errors propagate so the queue retries instead of caching a miss.
+            # LRCLIB unavailable: the job runs later (Postpone) instead of caching a miss.
             found = await _lrclib(ctx, track)
+            if found is None and existing is not None and existing.source == "lrclib":
+                # Found once: not lost because a new album name or spelling isn't found.
+                return
         if found is None:
             found = {"synced": None, "plain": None, "instrumental": False, "source": "none"}
 

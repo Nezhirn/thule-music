@@ -2,9 +2,15 @@
 
 import os
 import time
+from datetime import timedelta
 
 import httpx
 import pytest
+from sqlalchemy import func, select
+
+from app.db import utcnow
+from app.jobs.models import Job, JobStatus
+from app.lyrics import fetch as lyrics_fetch
 
 
 @pytest.fixture
@@ -309,3 +315,62 @@ async def test_rescan_notices_lyrics_files(client, admin, make_audio, run_jobs):
 
     sidecar.unlink()
     assert await rescan() == (2, "from the tags")
+
+
+async def test_lrclib_away_makes_lookups_wait_not_fail(
+    client, admin, make_audio, run_jobs, settings, lrclib_responses, sessionmaker
+):
+    settings.lrclib_enabled = True
+    for title in ("Song", "Other"):
+        lrclib_responses[title] = httpx.ConnectError("no route to host")
+    make_audio("l/1.mp3", title="Song", artist="A", album="L")
+    make_audio("l/2.mp3", title="Other", artist="A", album="L")
+    await client.post("/library/scan", headers=admin)
+    await run_jobs()
+
+    async with sessionmaker() as session:
+        lookups = list(await session.scalars(select(Job).where(Job.kind == "fetch_lyrics")))
+    # Both wait for LRCLIB to be back: neither failed nor lost a try.
+    assert {(j.status, j.attempts) for j in lookups} == {(JobStatus.queued, 0)}
+    assert all(j.run_after > utcnow() + timedelta(minutes=4) for j in lookups)
+    assert lyrics_fetch.breaker.until is not None
+
+
+async def test_lyrics_found_once_stay_when_a_new_name_isnt_found(
+    client, admin, make_audio, run_jobs, settings, lrclib_responses
+):
+    settings.lrclib_enabled = True
+    lrclib_responses["Song"] = httpx.Response(
+        200, json={"syncedLyrics": None, "plainLyrics": "words", "instrumental": False}
+    )
+    make_audio("l/1.mp3", title="Song", artist="A", album="L")
+    await client.post("/library/scan", headers=admin)
+    await run_jobs()
+    album = (await client.get("/albums", headers=admin)).json()["items"][0]
+    track = (await client.get("/tracks", headers=admin)).json()["items"][0]
+    del lrclib_responses["Song"]  # LRCLIB doesn't know it under the album's new name
+
+    resp = await client.patch(f"/albums/{album['id']}", json={"title": "Renamed"}, headers=admin)
+    assert resp.status_code == 200, resp.text
+    await run_jobs()
+    lyrics = (await client.get(f"/tracks/{track['id']}/lyrics", headers=admin)).json()
+    assert (lyrics["source"], lyrics["plain"]) == ("lrclib", "words")
+
+
+async def test_edits_that_dont_change_names_dont_look_lyrics_up(
+    client, admin, make_audio, run_jobs, sessionmaker
+):
+    make_audio("l/1.mp3", title="Song", artist="A", album="L", genre="Rock")
+    await client.post("/library/scan", headers=admin)
+    await run_jobs()
+    album = (await client.get("/albums", headers=admin)).json()["items"][0]
+
+    await client.patch("/genres", params={"genre": "Rock"}, json={"name": "Jazz"}, headers=admin)
+    await client.patch(f"/albums/{album['id']}", json={"year": 1999}, headers=admin)
+    async with sessionmaker() as session:
+        queued = await session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(Job.kind == "fetch_lyrics", Job.status == JobStatus.queued)
+        )
+    assert queued == 0

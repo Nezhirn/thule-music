@@ -31,6 +31,9 @@ services:
   worker:
     <<: *thule
     command: ["thule", "worker"]
+    # Stopping, the worker gives a running job 20 seconds to finish, then puts it back in
+    # the queue: Docker waits this long before it kills it.
+    stop_grace_period: 30s
 
   postgres:
     profiles: ["local-db"]

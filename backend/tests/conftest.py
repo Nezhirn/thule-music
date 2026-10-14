@@ -5,7 +5,7 @@ import io
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -19,6 +19,7 @@ from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.jobs.context import JobContext
 from app.jobs.worker import drain
+from app.lyrics import fetch as lyrics_fetch
 from app.main import create_app
 from app.models import Base
 
@@ -81,16 +82,27 @@ async def sessionmaker(engine: AsyncEngine):
 
 
 @pytest.fixture
-def lrclib_responses() -> dict[str, httpx.Response]:
-    """Map of track_name -> canned LRCLIB response; unknown tracks get 404."""
+def lrclib_responses() -> dict[str, httpx.Response | Exception]:
+    """Map of track_name -> canned LRCLIB response, or the error the request runs into;
+    unknown tracks get 404."""
     return {}
+
+
+@pytest.fixture(autouse=True)
+def lrclib_up() -> Iterator[None]:
+    """Each test starts with LRCLIB taken for available."""
+    yield
+    lyrics_fetch.breaker.worked()
 
 
 @pytest.fixture
 async def job_ctx(settings, sessionmaker, lrclib_responses) -> AsyncIterator[JobContext]:
     def handler(request: httpx.Request) -> httpx.Response:
         name = request.url.params.get("track_name", "")
-        return lrclib_responses.get(name, httpx.Response(404, json={"code": 404}))
+        answer = lrclib_responses.get(name, httpx.Response(404, json={"code": 404}))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         yield JobContext(settings, sessionmaker, http)

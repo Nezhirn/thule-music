@@ -12,16 +12,14 @@ from typing import Any
 from sqlalchemy.dialects.postgresql import insert
 
 from app.jobs.context import JobContext
-from app.jobs.queue import STALE_AFTER
 from app.library.importer import resolve_in_library
 from app.library.models import VARIANT_BITRATES, Track, TrackFile, Variant
 
 OPUS_MIME = "audio/ogg; codecs=opus"
 
-# An encode slower than real time (plus a minute of slack) is treated as hung and killed.
-# The whole job must also end well before the queue deems it stale and hands it to another
-# worker, which would then run ffmpeg on the same files in parallel.
-JOB_BUDGET = STALE_AFTER - timedelta(minutes=5)
+# An encode slower than real time (plus a minute of slack) is treated as hung and killed,
+# and the whole job within this.
+JOB_BUDGET = timedelta(minutes=25)
 
 
 class TranscodeError(Exception):

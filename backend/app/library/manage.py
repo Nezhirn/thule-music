@@ -241,11 +241,13 @@ async def _reimport(
     rels: Iterable[str],
     *,
     transcode: bool = False,
+    lyrics: bool = True,
     albums: Iterable[uuid.UUID] = (),
 ) -> list[Imported]:
     """Imports the changed files again, then what follows once for all of them: albums and
     artists left empty go, covers of the albums concerned (`albums` and theirs) are chosen
-    again, lyrics are looked up (and transcodes made, for new audio)."""
+    again, lyrics are looked up (unless the change doesn't touch what they are looked up
+    by: title, artist, album), and transcodes made, for new audio."""
     imported = []
     for rel in dict.fromkeys(rels):
         try:
@@ -261,7 +263,7 @@ async def _reimport(
     album_ids |= {i.previous_album_id for i in imported if i.previous_album_id is not None}
     await choose_covers(session, settings.library_path, settings.covers_path, album_ids)
     for result in imported:
-        await queue_follow_ups(session, result, transcode=transcode)
+        await queue_follow_ups(session, result, transcode=transcode, lyrics=lyrics)
     return imported
 
 
@@ -412,7 +414,8 @@ async def update_album(
         await _move_likes(session, AlbumLike.album_id, album.id, twin.id)
         result = twin.id
     await session.flush()
-    await _reimport(session, settings, [t.path for t in tracks])
+    looked_up_by = {"album", "albumartist"} & values.keys()
+    await _reimport(session, settings, [t.path for t in tracks], lyrics=bool(looked_up_by))
     await session.commit()
     return await _album_out(session, admin, result)
 
@@ -610,7 +613,8 @@ async def update_track(
         values["discnumber"] = str(body.disc_no) if body.disc_no else None
     if values:
         await _retag(session, settings, [track], lambda _: values)
-        await _reimport(session, settings, [track.path])
+        looked_up_by = {"title", "artist"} & values.keys()
+        await _reimport(session, settings, [track.path], lyrics=bool(looked_up_by))
         await session.commit()
     return await _track_out(session, admin, track.id)
 
@@ -875,7 +879,7 @@ async def _set_genre(
     for album in changing:
         album.genre = genre
     await session.flush()
-    await _reimport(session, settings, [t.path for t in tracks])
+    await _reimport(session, settings, [t.path for t in tracks], lyrics=False)
     await session.commit()
 
 
