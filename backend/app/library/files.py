@@ -16,7 +16,9 @@ from app.errors import ApiError, ErrorCode
 from app.library.tags import FOLDER_COVER_NAMES, FOLDER_COVER_SUFFIXES
 from app.lyrics.models import SIDECAR_SUFFIXES
 
-_UNSAFE = re.compile(r"[^\w\-. ()\[\]&,']+", re.UNICODE)
+# Besides letters and digits, what names of music often have and file systems allow
+# everywhere: "Artist – Title (feat. B & C) [Live]".
+_UNSAFE = re.compile(r"[^\w\-–—. ()\[\]&,'!+#]+", re.UNICODE)
 # Bytes (UTF-8) of a file or folder name: file systems allow 255, and a free name may grow
 # by " (12)". Cyrillic takes 2 bytes a letter, Chinese and Japanese 3.
 MAX_NAME_BYTES = 200

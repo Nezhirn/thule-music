@@ -57,7 +57,6 @@ from app.library.queries import (
     tracks_out,
 )
 from app.library.tags import (
-    UNKNOWN_ARTIST,
     UnreadableAudio,
     read_tags,
     remove_featured,
@@ -631,7 +630,7 @@ async def _upload(
         except UnreadableAudio as exc:
             raise ApiError(ErrorCode.not_an_audio_file, str(exc)) from exc
         values = dict(values)
-        if tags.artists == [UNKNOWN_ARTIST]:
+        if "artist" in tags.guessed:
             values["artist"] = artist
         if tags.track_no is None:
             values["tracknumber"] = str(max((t.track_no or 0 for t in tracks), default=0) + 1)

@@ -3,12 +3,14 @@
 import base64
 import re
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 import mutagen
+from mutagen.apev2 import APETextValue, APEv2
 from mutagen.flac import FLAC, Picture, VCFLACDict
 from mutagen.id3 import ID3
+from mutagen.mp3 import EasyMP3
 from mutagen.mp4 import MP4
 
 from app.jobs.queue import PermanentFailure
@@ -48,6 +50,10 @@ class TrackTags:
     bitrate: int | None  # kbit/s
     sample_rate: int | None
     lyrics: str | None
+    # The fields the file's tags leave out, filled from its folders and name or with a
+    # placeholder (UNKNOWN_ARTIST): "title", "artist", "album", "album_artist", "year",
+    # "track_no", "disc_no".
+    guessed: frozenset[str] = field(default=frozenset())
 
     @property
     def artist(self) -> str:
@@ -275,8 +281,41 @@ def replaced_bytes(tags) -> bool:
     )
 
 
-def read_tags(path: Path, *, lyrics: bool = True) -> TrackTags:
-    """`lyrics=False` skips embedded lyrics, which need another pass over the file."""
+class _Ape:
+    """APEv2 tags read like mutagen's easy ones ("artist", "tracknumber"): what some taggers
+    (foobar2000, for one) leave in MP3 files instead of ID3."""
+
+    KEYS = {
+        "title": "title",
+        "artist": "artist",
+        "album": "album",
+        "albumartist": "album artist",
+        "date": "year",
+        "genre": "genre",
+        "tracknumber": "track",
+        "discnumber": "disc",
+        "compilation": "compilation",
+    }
+
+    def __init__(self, tags: APEv2):
+        self.tags = tags
+
+    def get(self, key: str) -> list[str]:
+        value = self.tags.get(self.KEYS.get(key, key))
+        return list(value) if isinstance(value, APETextValue) else []
+
+
+def _ape(path: Path) -> _Ape | None:
+    try:
+        return _Ape(APEv2(path))
+    except mutagen.MutagenError:
+        return None
+
+
+def read_tags(path: Path, *, lyrics: bool = True, place: PurePosixPath | None = None) -> TrackTags:
+    """`lyrics=False` skips embedded lyrics, which need another pass over the file. `place`:
+    the file's path inside the library, whose folders and name stand in for the tags it
+    lacks (see from_path)."""
     try:
         audio = mutagen.File(path, easy=True)
         # Text that was not UTF-8 came out as U+FFFD: read it again, bytes kept.
@@ -288,30 +327,248 @@ def read_tags(path: Path, *, lyrics: bool = True) -> TrackTags:
         raise UnreadableAudio(f"Unsupported audio file: {path.name}")
 
     tags = audio.tags
+    if isinstance(audio, EasyMP3) and not any(
+        _first(tags, key) for key in ("title", "artist", "album")
+    ):
+        tags = _ape(path) or tags
     title = _first(tags, "title")
-    artists = _credits(_values(tags, "artist"), title)
+    artist_values = _values(tags, "artist")
+    album = _first(tags, "album")
     album_artist = _first(tags, "albumartist")
+    year = _year(_first(tags, "date") or _first(tags, "year"))
+    track_no = _number(_first(tags, "tracknumber"))
+    disc_no = _number(_first(tags, "discnumber"))
+    found = {
+        "title": title,
+        "artist": artist_values,
+        "album": album,
+        "year": year,
+        "track_no": track_no,
+        "disc_no": disc_no,
+    }
+    guessed = {name for name, value in found.items() if not value}
+
+    says = from_path(place, next(iter(artist_values), None)) if place else None
+    if says:
+        title = title or says.title
+        artist_values = artist_values or ([says.artist] if says.artist else [])
+        album = album or says.album
+        year = year or says.year
+        track_no = track_no or says.track_no
+        disc_no = disc_no or says.disc_no
+
+    artists = _credits(artist_values, title)
     if album_artist:
         album_artist = split_featured(album_artist)[0] or album_artist
     elif _first(tags, "compilation") == "1":
         album_artist = VARIOUS_ARTISTS
+    elif "artist" in guessed:
+        guessed.add("album_artist")
+        album_artist = says.album_artist if says else None
     genre = _first(tags, "genre")
     bitrate = getattr(audio.info, "bitrate", None)
     return TrackTags(
         title=_clip(title or path.stem),
         artists=artists,
-        album=_clip(_first(tags, "album") or UNKNOWN_ALBUM),
+        album=_clip(album or UNKNOWN_ALBUM),
         album_artist=_clip(album_artist or artists[0]),
-        year=_year(_first(tags, "date") or _first(tags, "year")),
+        year=year,
         # mutagen reads an ID3 genre number it doesn't know, such as "(999)", as "Unknown".
         genre=_clip(genre, MAX_GENRE) if genre and genre.casefold() != "unknown" else None,
-        track_no=_number(_first(tags, "tracknumber")),
-        disc_no=_number(_first(tags, "discnumber")),
+        track_no=track_no,
+        disc_no=disc_no,
         duration_ms=int(round((audio.info.length or 0) * 1000)),
         codec=_codec(audio),
         bitrate=round(bitrate / 1000) if bitrate else None,
         sample_rate=getattr(audio.info, "sample_rate", None),
         lyrics=embedded_lyrics(path) if lyrics else None,
+        guessed=frozenset(guessed),
+    )
+
+
+# --- what the path says ----------------------------------------------------------------------
+
+# Between an artist and a title, an artist and an album, an album and its year: a dash with
+# spaces around it ("AC-DC" and "Jay-Z" have none).
+_DASH = re.compile(r"\s+[-–—]\s+")
+# A file name's track number: "01 - ", "01. ", "1) ", "01_", "07 " (zero-padded only:
+# "99 Problems" is a title), "1-01 " (disc and track).
+_NUMBER = re.compile(
+    r"(?:(?P<disc>\d)-(?P<track>\d{2})\s+"
+    r"|(?P<number>\d{1,3})\s*(?:[)_\]]|\.(?!\d)|[-–—])"
+    r"|(?P<padded>0\d{1,2})\s)"
+    r"\s*(?=\S)"
+)
+_YEAR = r"(?P<year>(?:19|20)\d{2})"
+# A year starting a folder's name: "2018 - Album", "2018. Album", "[2018] Album".
+_YEAR_FIRST = re.compile(
+    rf"[\[(]?{_YEAR}(?:[\])]\s*(?:[-–—.]\s*)?|\s*(?:[-–—]|\.(?!\d))\s*)(?P<rest>\S.*)"
+)
+# A year ending it: "Album - 2018".
+_YEAR_LAST = re.compile(rf"(?P<rest>.*\S)\s+[-–—]\s+{_YEAR}")
+# "Artist - 2018 - Album"
+_ARTIST_YEAR = re.compile(
+    rf"(?P<artist>.+?)\s+[-–—]\s+[\[(]?{_YEAR}[\])]?\s+[-–—]\s+(?P<rest>\S.*)"
+)
+# Something in brackets ending a folder's name: "Album (2018) [EP]".
+_BRACKETS_LAST = re.compile(r"\s*[\[(](?P<inner>[^\[\]()]*)[\])]\s*$")
+# What such brackets say that isn't the album's name: what it was released as, and the
+# format, quality and source of the files ("[EP]", "(320 kbps)", "[FLAC 24-96]", "[WEB]").
+_NOTE = re.compile(
+    r"ep|single|maxi-?single|lp|"
+    r"flac|mp3|aac|alac|ogg|opus|wav|ape|wv|m4a|lossless|hi-?res|vbr|cbr|v[02]|"
+    r"web|web-?dl|webrip|cd|cdrip|vinyl|vinylrip|rip|"
+    r"kbps|kbit/s|khz|bit|\d{2,3}\s*(?:k|kbps|kbit/s)?|\d{2}\s*bit|"
+    r"\d{2}(?:\s*bit)?\s*[-/]\s*\d{2,3}(?:[.,]\d)?\s*(?:khz)?|\d{2,3}(?:[.,]\d)?\s*khz",
+    re.IGNORECASE,
+)
+# A disc's own folder inside an album's: "CD1", "Disc 2", "Диск 1".
+_DISC = re.compile(r"(?:cd|dis[ck]|диск)\s*[-_.]?\s*(?P<disc>\d{1,2})\b", re.IGNORECASE)
+# Folders that hold albums by many artists.
+_VARIOUS = {
+    "various artists",
+    "various",
+    "va",
+    "v.a.",
+    "v/a",
+    "compilation",
+    "compilations",
+    "сборник",
+    "сборники",
+    "разные исполнители",
+}
+
+
+@dataclass
+class PathSays:
+    """What a file's folders and name say about it (see from_path)."""
+
+    title: str
+    artist: str | None = None
+    album: str | None = None
+    album_artist: str | None = None
+    year: int | None = None
+    track_no: int | None = None
+    disc_no: int | None = None
+
+
+def _name(text: str) -> str:
+    """A folder or file name as a name: underscores standing for spaces ("Hurt_In_Lane")
+    are spaces again, spaces collapsed."""
+    if " " not in text.strip():
+        text = text.replace("_", " ")
+    return " ".join(text.split())
+
+
+def _names(text: str | None) -> set[str]:
+    """Everyone a credit names ("A feat. B" -> a, b), to compare."""
+    if not text:
+        return set()
+    main, featured = split_featured(text)
+    return {name_key(n) for n in (main, *featured) if n}
+
+
+def _numbered(text: str) -> tuple[int | None, int | None, str]:
+    """ "1-02 Title" -> (1, 2, "Title"): the disc, the track and the rest of a file name."""
+    match = _NUMBER.match(text)
+    if match is None:
+        return None, None, text
+    disc = int(match["disc"]) if match["disc"] else None
+    track = int(match["track"] or match["number"] or match["padded"])
+    return disc or None, track or None, text[match.end() :]
+
+
+def _is_note(text: str) -> bool:
+    words = [w for w in re.split(r"[\s,;+]+", text) if w]
+    return bool(words) and all(_NOTE.fullmatch(w) for w in words)
+
+
+@dataclass
+class _Folder:
+    album: str
+    year: int | None = None
+    # An artist the name gives for certain ("Artist - 2018 - Album").
+    artist: str | None = None
+    # Its parts around " - ", which may be the artist and the album ("Artist - Album").
+    split: tuple[str, str] | None = None
+
+
+def _album_folder(text: str) -> _Folder:
+    """ "2018 - Fake Truth [EP]" -> Fake Truth, 2018."""
+    year = None
+    # Notes and a year in brackets at the end: "Album (2018) [FLAC]".
+    while (match := _BRACKETS_LAST.search(text)) and match.start() > 0:
+        inner = match["inner"].strip()
+        if year is None and re.fullmatch(_YEAR, inner):
+            year = int(inner)
+        elif not _is_note(inner):
+            break
+        text = text[: match.start()]
+    if match := _ARTIST_YEAR.fullmatch(text):
+        return _Folder(match["rest"], year or int(match["year"]), match["artist"])
+    if (match := _YEAR_FIRST.fullmatch(text)) or (match := _YEAR_LAST.fullmatch(text)):
+        year, text = year or int(match["year"]), match["rest"]
+    parts = _DASH.split(text, maxsplit=1)
+    return _Folder(text, year, split=(parts[0], parts[1]) if len(parts) == 2 else None)
+
+
+def from_path(place: PurePosixPath, artist: str | None = None) -> PathSays:
+    """What the folders and name of a file, `place` inside the library, say about it: music
+    kept without tags is still kept in order, "Artist/2018 - Album [EP]/01 - Artist -
+    Title.mp3". `artist`: the one the file's tags name, if any.
+
+    The folder holding the file is its album's (a disc's folder, "CD1", is passed over), the
+    one above it its artist's. A name with " - " starts with the artist when that matches
+    the artist known from elsewhere; with none known, a file's name is read as "Artist -
+    Title" and a folder's as "Artist - Album"."""
+    *folders, file = (_name(part) for part in place.parts)
+    disc = None
+    if folders and (match := _DISC.match(folders[-1])):
+        disc = int(match["disc"]) or None
+        folders.pop()
+    artist_folder = folders[-2] if len(folders) >= 2 else None
+    various = artist_folder is not None and name_key(artist_folder) in _VARIOUS
+    if various:
+        artist_folder = None
+    folder = _album_folder(folders[-1]) if folders else None
+
+    file_disc, track_no, rest = _numbered(PurePosixPath(file).stem)
+    parts = _DASH.split(rest, maxsplit=1)
+    file_split = (parts[0], parts[1]) if len(parts) == 2 else None
+
+    known = _names(artist) | _names(artist_folder)
+    album = folder.album if folder else None
+    folder_artist = folder.artist if folder else None
+    if folder and folder.split:
+        left, right = folder.split
+        file_left = file_split[0] if file_split else None
+        if _names(left) & (known | _names(file_left)) or (
+            not known and not various and file_left is None
+        ):
+            folder_artist, album = left, right
+    known |= _names(folder_artist)
+
+    title, file_artist = rest, None
+    if file_split:
+        left, right = file_split
+        if _names(left) & known or not known:
+            file_artist, title = left, right
+            if track_no is None:
+                file_disc, track_no, title = _numbered(title)
+    track_artist = file_artist or artist_folder or folder_artist
+    album_artist = artist_folder or folder_artist
+    if various:
+        album_artist = VARIOUS_ARTISTS
+    elif album_artist is None and track_artist:
+        album_artist = split_featured(track_artist)[0]
+    return PathSays(
+        title=title,
+        artist=track_artist,
+        album=album or None,
+        album_artist=album_artist,
+        year=folder.year if folder else None,
+        track_no=track_no,
+        disc_no=disc or file_disc,
     )
 
 

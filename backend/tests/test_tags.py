@@ -1,16 +1,19 @@
 """Tags as real files have them: legacy encodings, junk values, featured artists."""
 
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
+from mutagen.apev2 import APEv2
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1, TPOS, TRCK, Encoding
 
 from app.library.tags import (
     MAX_NAME,
+    UNKNOWN_ALBUM,
     UNKNOWN_ARTIST,
     VARIOUS_ARTISTS,
+    from_path,
     read_tags,
     remove_featured,
     rename_featured,
@@ -157,3 +160,158 @@ def test_album_artist(tmp_path):
     assert read_tags(featured).album_artist == "A"
     compilation = blank(tmp_path / "b.flac", artist="B", compilation="1")
     assert read_tags(compilation).album_artist == VARIOUS_ARTISTS
+
+
+@pytest.mark.parametrize(
+    ("place", "says"),
+    [
+        (
+            "Hurt In Lane/2018 - Fake Truth [EP]/Hurt In Lane - W.T.E.E..mp3",
+            ("Hurt In Lane", "Hurt In Lane", "Fake Truth", 2018, None, None, "W.T.E.E."),
+        ),
+        (
+            "Hurt In Lane/2021 - Обитель/Hurt In Lane - Ложь (Remix (Prod. by Pro Heroes)).mp3",
+            (
+                "Hurt In Lane",
+                "Hurt In Lane",
+                "Обитель",
+                2021,
+                None,
+                None,
+                "Ложь (Remix (Prod. by Pro Heroes))",
+            ),
+        ),
+        # An album's folder dropped alone; a file alone.
+        (
+            "2018 - Fake Truth [EP]/Hurt In Lane - Despair.mp3",
+            ("Hurt In Lane", "Hurt In Lane", "Fake Truth", 2018, None, None, "Despair"),
+        ),
+        (
+            "Hurt In Lane - Despair.mp3",
+            ("Hurt In Lane", "Hurt In Lane", None, None, None, None, "Despair"),
+        ),
+        # A dash in the title: the artist's folder says who it is by.
+        (
+            "Queen/1975 - A Night at the Opera/01 - Bohemian Rhapsody - Remastered 2011.mp3",
+            (
+                "Queen",
+                "Queen",
+                "A Night at the Opera",
+                1975,
+                1,
+                None,
+                "Bohemian Rhapsody - Remastered 2011",
+            ),
+        ),
+        (
+            "Queen - A Night at the Opera (1975) [FLAC 24-96]/11. Bohemian Rhapsody.flac",
+            ("Queen", "Queen", "A Night at the Opera", 1975, 11, None, "Bohemian Rhapsody"),
+        ),
+        (
+            "Queen - 1975 - A Night at the Opera/01) Death on Two Legs.flac",
+            ("Queen", "Queen", "A Night at the Opera", 1975, 1, None, "Death on Two Legs"),
+        ),
+        (
+            "Pink Floyd/The Wall/CD2/1-01 Hey You.flac",
+            ("Pink Floyd", "Pink Floyd", "The Wall", None, 1, 2, "Hey You"),
+        ),
+        (
+            "Кино/[1988] Группа крови/07 Кукушка.mp3",
+            ("Кино", "Кино", "Группа крови", 1988, 7, None, "Кукушка"),
+        ),
+        (
+            "VA/Best of 2018/03 - Hurt In Lane feat. Mila - Mob Law.mp3",
+            ("Hurt In Lane feat. Mila", VARIOUS_ARTISTS, "Best of 2018", None, 3, None, "Mob Law"),
+        ),
+        (
+            "Hurt_In_Lane/2018_-_Fake_Truth/Hurt_In_Lane_-_Despair.mp3",
+            ("Hurt In Lane", "Hurt In Lane", "Fake Truth", 2018, None, None, "Despair"),
+        ),
+        # Numbers that are titles.
+        (
+            "Jay-Z/The Black Album/99 Problems.mp3",
+            ("Jay-Z", "Jay-Z", "The Black Album", None, None, None, "99 Problems"),
+        ),
+        ("Van Halen/1984/01 - Jump.mp3", ("Van Halen", "Van Halen", "1984", None, 1, None, "Jump")),
+        # A folder whose name has a dash but not the artist's.
+        (
+            "Fake Truth - Deluxe/Hurt In Lane - Despair.mp3",
+            ("Hurt In Lane", "Hurt In Lane", "Fake Truth - Deluxe", None, None, None, "Despair"),
+        ),
+    ],
+)
+def test_what_the_path_says(place, says):
+    got = from_path(PurePosixPath(place))
+    assert (
+        got.artist,
+        got.album_artist,
+        got.album,
+        got.year,
+        got.track_no,
+        got.disc_no,
+        got.title,
+    ) == says
+
+
+def test_a_file_name_starting_with_the_tagged_artist(tmp_path):
+    place = PurePosixPath("Some Folder/Кино - Апрель.mp3")
+    assert from_path(place, "Кино").title == "Апрель"
+    assert from_path(place, "Аквариум").title == "Кино - Апрель"
+
+
+def test_untagged_file_is_read_from_its_place(tmp_path):
+    path = blank(tmp_path / "a.mp3")
+    place = PurePosixPath("Hurt In Lane/2018 - Fake Truth [EP]/02 - Hurt In Lane - Despair.mp3")
+    tags = read_tags(path, place=place)
+    assert (tags.title, tags.artists, tags.album, tags.album_artist) == (
+        "Despair",
+        ["Hurt In Lane"],
+        "Fake Truth",
+        "Hurt In Lane",
+    )
+    assert (tags.year, tags.track_no, tags.disc_no) == (2018, 2, None)
+    assert tags.guessed == {
+        "title",
+        "artist",
+        "album",
+        "album_artist",
+        "year",
+        "track_no",
+        "disc_no",
+    }
+
+    # Without a place: the placeholders, as before.
+    alone = read_tags(path)
+    assert (alone.title, alone.artists, alone.album) == ("a", [UNKNOWN_ARTIST], UNKNOWN_ALBUM)
+    assert {"artist", "album", "album_artist"} <= alone.guessed
+
+
+def test_tags_win_over_the_place(tmp_path):
+    path = blank(tmp_path / "a.flac", artist="Tagged", album="Tagged Album", date="1999")
+    place = PurePosixPath("Folder Artist/2018 - Folder Album/03 - Tagged - Song.flac")
+    tags = read_tags(path, place=place)
+    assert (tags.artists, tags.album_artist, tags.album, tags.year) == (
+        ["Tagged"],
+        "Tagged",
+        "Tagged Album",
+        1999,
+    )
+    # What the tags leave out still comes from the name.
+    assert (tags.title, tags.track_no) == ("Song", 3)
+    assert tags.guessed == {"title", "track_no", "disc_no"}
+
+
+def test_apev2_tags_in_mp3(tmp_path):
+    path = blank(tmp_path / "a.mp3")
+    ape = APEv2()
+    ape.update(
+        {"Title": "Despair", "Artist": "Hurt In Lane", "Album": "Fake Truth", "Track": "2/6"}
+    )
+    ape.save(path)
+    tags = read_tags(path)
+    assert (tags.title, tags.artist, tags.album, tags.track_no) == (
+        "Despair",
+        "Hurt In Lane",
+        "Fake Truth",
+        2,
+    )

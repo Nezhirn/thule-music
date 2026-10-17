@@ -32,7 +32,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import AUDIO_EXTENSIONS
+from app.config import AUDIO_EXTENSIONS, UPLOADS_FOLDER
 from app.jobs.context import JobContext
 from app.jobs.queue import enqueue, enqueue_many
 from app.library.covers import is_image, store_cover
@@ -345,6 +345,15 @@ class _Known:
     mtime: float
 
 
+def place_in_library(rel: str) -> PurePosixPath:
+    """A file's path as read for what its folders say (read_tags' `place`): an uploaded
+    file's from inside the uploads folder, as it was dropped there ("Artist/Album/...")."""
+    place = PurePosixPath(rel)
+    if len(place.parts) > 1 and place.parts[0] == UPLOADS_FOLDER:
+        return place.relative_to(UPLOADS_FOLDER)
+    return place
+
+
 def _identity(
     album_artist: str, album: str, disc_no: int | None, track_no: int | None, title: str
 ) -> Identity:
@@ -355,7 +364,7 @@ def _read_identities(root: Path, paths: list[str]) -> dict[str, tuple[Identity, 
     found = {}
     for rel in paths:
         try:
-            tags = read_tags(root / rel, lyrics=False)
+            tags = read_tags(root / rel, lyrics=False, place=place_in_library(rel))
         except Exception:
             continue  # unreadable files are reported by their own import job
         ident = _identity(tags.album_artist, tags.album, tags.disc_no, tags.track_no, tags.title)
@@ -669,7 +678,7 @@ async def import_file(session: AsyncSession, library: Path, rel: str) -> Importe
     if st is None:
         await session.execute(delete(Track).where(Track.path == rel))
         return None
-    tags = await asyncio.to_thread(read_tags, full)
+    tags = await asyncio.to_thread(read_tags, full, place=place_in_library(rel))
 
     album_artist_id = await upsert_artist(session, tags.album_artist)
     artist_ids = [

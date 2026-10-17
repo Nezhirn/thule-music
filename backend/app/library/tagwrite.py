@@ -44,13 +44,16 @@ def _repaired(path: Path) -> dict[str, str | list[str]]:
     """The main tags as read (legacy encodings repaired), for files whose Vorbis comments
     hold bytes that aren't UTF-8: saving would write them back as U+FFFD."""
     tags = read_tags(path, lyrics=False)
-    return {
+    read: dict[str, str | list[str]] = {
         "title": tags.title,
         "artist": tags.artists,
         "album": tags.album,
         "albumartist": tags.album_artist,
         **({"genre": tags.genre} if tags.genre else {}),
     }
+    # Not the placeholders that stand in for what the file has no tags for.
+    left_out = {"albumartist" if name == "album_artist" else name for name in tags.guessed}
+    return {key: value for key, value in read.items() if key not in left_out}
 
 
 def write_tags(path: Path, values: Values) -> None:

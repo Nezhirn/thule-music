@@ -182,6 +182,41 @@ async def test_upload_imports_file(client, admin, make_audio, run_jobs, tmp_path
     assert [t["title"] for t in tracks] == ["Uploaded"]
 
 
+async def test_untagged_files_are_named_by_their_folders(client, admin, make_audio, run_jobs):
+    for name in ("Hurt In Lane - Intro", "Hurt In Lane - Despair", "Hurt In Lane - W.T.E.E."):
+        make_audio(f"Hurt In Lane/2018 - Fake Truth [EP]/{name}.mp3")
+    make_audio("Hurt In Lane/2021 - Обитель/Hurt In Lane - Путь.mp3")
+    await scan(client, admin, run_jobs)
+
+    artists = (await client.get("/artists", headers=admin)).json()["items"]
+    assert [(a["name"], a["album_count"]) for a in artists] == [("Hurt In Lane", 2)]
+    albums = (await client.get("/albums?sort=year", headers=admin)).json()["items"]
+    assert [(a["title"], a["year"], a["artist"]["name"]) for a in albums] == [
+        ("Обитель", 2021, "Hurt In Lane"),
+        ("Fake Truth", 2018, "Hurt In Lane"),
+    ]
+    detail = (await client.get(f"/albums/{albums[1]['id']}", headers=admin)).json()
+    assert sorted(t["title"] for t in detail["tracks"]) == ["Despair", "Intro", "W.T.E.E."]
+
+
+async def test_uploaded_folder_names_untagged_files(client, admin, make_audio, run_jobs):
+    data = make_audio("../untagged.mp3").read_bytes()
+    resp = await client.post(
+        "/library/uploads",
+        data={"folder": "Hurt In Lane/2018 - Fake Truth [EP]"},
+        files=[("files", ("Hurt In Lane - Mob Law.mp3", data, "audio/mpeg"))],
+        headers=admin,
+    )
+    assert resp.status_code == 202, resp.text
+    await run_jobs()
+    (track,) = (await client.get("/tracks", headers=admin)).json()["items"]
+    assert (track["title"], track["artist"]["name"], track["album"]["title"]) == (
+        "Mob Law",
+        "Hurt In Lane",
+        "Fake Truth",
+    )
+
+
 async def test_upload_keeps_existing_files(client, admin, make_audio, settings):
     first = make_audio("../one.mp3", title="One", artist="U", album="Up").read_bytes()
     second = make_audio("../two.mp3", title="Two", artist="U", album="Up").read_bytes()

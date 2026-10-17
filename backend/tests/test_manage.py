@@ -343,9 +343,8 @@ async def test_files_that_cant_be_changed(client, admin, user, make_audio, run_j
     await scan(client, admin, run_jobs)
     found = await albums(client, admin)
 
-    wav = await client.patch(
-        f"/albums/{found['Unknown Album']['id']}", json={"title": "X"}, headers=admin
-    )
+    # WAV keeps no tags: its album is named after its folder.
+    wav = await client.patch(f"/albums/{found['W']['id']}", json={"title": "X"}, headers=admin)
     assert (wav.status_code, wav.json()["code"]) == (415, "tags_not_writable")
 
     # The second file can't be written: the first one's change is in the library anyway.

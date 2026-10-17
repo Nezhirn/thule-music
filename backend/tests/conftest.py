@@ -156,14 +156,14 @@ def png_bytes(color: tuple[int, int, int], size: int = 64) -> bytes:
 
 @pytest.fixture
 def make_audio(settings: Settings) -> Callable[..., Path]:
-    """Creates a short tagged sine-wave file inside the library."""
+    """Creates a short sine-wave file inside the library, with the tags given."""
 
     def _make(
         rel: str,
         *,
-        title: str,
-        artist: str,
-        album: str,
+        title: str | None = None,
+        artist: str | None = None,
+        album: str | None = None,
         album_artist: str | None = None,
         track: int | None = None,
         disc: int | None = None,
@@ -175,7 +175,8 @@ def make_audio(settings: Settings) -> Callable[..., Path]:
     ) -> Path:
         path = settings.library_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        meta = {"title": title, "artist": artist, "album": album}
+        named = {"title": title, "artist": artist, "album": album}
+        meta = {key: value for key, value in named.items() if value is not None}
         if album_artist:
             meta["album_artist"] = album_artist
         if track:

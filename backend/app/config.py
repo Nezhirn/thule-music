@@ -6,6 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 AUDIO_EXTENSIONS = frozenset({".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".wma"})
 
 
+# Inside the library: where uploaded files land.
+UPLOADS_FOLDER = "uploads"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="THULE_", env_file=".env", extra="ignore")
 
@@ -44,7 +48,7 @@ class Settings(BaseSettings):
 
     @property
     def uploads_path(self) -> Path:
-        return self.library_path / "uploads"
+        return self.library_path / UPLOADS_FOLDER
 
     @property
     def covers_path(self) -> Path:
