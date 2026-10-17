@@ -230,7 +230,7 @@ describe("artist", () => {
 });
 
 describe("albums", () => {
-  test("sort and genre go into the request; more pages load on demand", async () => {
+  test("sort and filters go into the request; more pages load on demand", async () => {
     mockAccount();
     const seen = requests();
     const all = Array.from({ length: 61 }, (_, i) => album(`Album ${i + 1}`, WIND));
@@ -245,6 +245,18 @@ describe("albums", () => {
           { name: "Jazz", album_count: 21 },
         ]),
       ),
+      http.get(url("/api/v1/filters/genres"), ({ request }) =>
+        HttpResponse.json({
+          items: [
+            { value: "Rock", name: "Rock", detail: null, count: 40 },
+            { value: "Jazz", name: "Jazz", detail: null, count: 21 },
+          ],
+          total: 2,
+          selected: new URL(request.url).searchParams.get("genre")
+            ? { value: "Jazz", name: "Jazz", detail: null }
+            : null,
+        }),
+      ),
     );
     const { user } = renderSignedIn("/albums");
     expect(await screen.findByText("61 albums")).toBeInTheDocument();
@@ -255,13 +267,11 @@ describe("albums", () => {
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Sort by" }), "Title");
-    const filter = screen.getByRole("navigation", { name: "Genre" });
-    await user.click(within(filter).getByRole("link", { name: "Jazz" }));
+    const filters = screen.getByRole("group", { name: "Filters" });
+    await user.click(within(filters).getByRole("button", { name: "Genre" }));
+    await user.click(await screen.findByRole("option", { name: /^Jazz/ }));
     expect(await screen.findByRole("heading", { level: 1, name: "Jazz" })).toBeInTheDocument();
-    expect(within(filter).getByRole("link", { name: "Jazz" })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
+    expect(await within(filters).findByRole("button", { name: "Genre: Jazz" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Sort by" })).toHaveValue("title");
     await waitFor(() =>
       expect(seen.filter((r) => r.startsWith("/api/v1/albums"))).toEqual([

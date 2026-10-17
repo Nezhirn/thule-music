@@ -7,6 +7,13 @@ from sqlalchemy import func, select
 
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
+from app.library.filters import (
+    Filters,
+    GenreParam,
+    album_filters,
+    artist_filters,
+    track_filters,
+)
 from app.library.models import Album, Artist, Track, TrackArtist
 from app.library.queries import (
     ALBUM_LOAD,
@@ -55,8 +62,10 @@ async def list_artists(
     limit: Limit = 50,
     offset: Offset = 0,
     q: str | None = None,
+    genre: GenreParam = None,
 ) -> Page[ArtistOut]:
-    query = select(Artist)
+    """`genre`: artists with an album of it, of their own or one they are credited on."""
+    query = select(Artist).where(*artist_filters(Filters(genre=genre)))
     if q:
         query = query.where(Artist.name.ilike(contains(q), escape="\\"))
     total = await session.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -126,13 +135,13 @@ async def list_albums(
     offset: Offset = 0,
     sort: AlbumSort = AlbumSort.by_added,
     q: str | None = None,
-    genre: str | None = None,
+    genre: GenreParam = None,
+    artist_id: uuid.UUID | None = None,
 ) -> Page[AlbumOut]:
-    query = select(Album)
+    """`artist_id`: the artist's own albums (they are its album artist)."""
+    query = select(Album).where(*album_filters(Filters(artist_id=artist_id, genre=genre)))
     if q:
         query = query.where(Album.title.ilike(contains(q), escape="\\"))
-    if genre:
-        query = query.where(func.lower(Album.genre) == genre.casefold())
     if sort == AlbumSort.by_artist:
         query = query.join(Artist, Artist.id == Album.artist_id)
     order = {
@@ -182,8 +191,13 @@ async def list_tracks(
     limit: Limit = 50,
     offset: Offset = 0,
     sort: TrackSort = TrackSort.by_added,
+    artist_id: uuid.UUID | None = None,
+    album_id: uuid.UUID | None = None,
+    genre: GenreParam = None,
 ) -> Page[TrackOut]:
-    query = track_select()
+    """`artist_id`: the tracks they are credited on, and those of their albums."""
+    where = track_filters(Filters(artist_id=artist_id, album_id=album_id, genre=genre))
+    query = track_select().where(*where)
     if sort == TrackSort.by_artist:
         query = query.join(Artist, Artist.id == Track.artist_id)
     if sort != TrackSort.by_title:
@@ -197,7 +211,7 @@ async def list_tracks(
         TrackSort.by_artist: (Artist.name_key, Album.year.nulls_last(), Album.title_key, *in_album),
         TrackSort.by_album: (Album.title_key, Album.id, *in_album),
     }[sort]
-    total = await session.scalar(select(func.count()).select_from(Track)) or 0
+    total = await session.scalar(select(func.count()).select_from(Track).where(*where)) or 0
     tracks = (await session.scalars(query.order_by(*order).limit(limit).offset(offset))).all()
     return Page(
         items=await tracks_out(session, user.id, tracks), total=total, limit=limit, offset=offset

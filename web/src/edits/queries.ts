@@ -92,6 +92,7 @@ export function libraryEdited(queryClient: QueryClient) {
     ["artists"],
     ["artist"],
     ["tracks"],
+    ["filters"],
     ["search"],
     ["playlists"],
     ["likes"],

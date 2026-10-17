@@ -2,6 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { unwrap } from "../api/errors";
 import type { Schemas } from "../api/client";
+import { filterParams, NO_FILTERS, type Filters } from "./filters";
 
 export type Album = Schemas["AlbumOut"];
 export type Artist = Schemas["ArtistOut"];
@@ -67,32 +68,37 @@ export const offsetPaging = {
 
 const paging = { ...offsetPaging, staleTime };
 
-export const albumsQuery = (sort: AlbumSort, genre: string | null) =>
+export const albumsQuery = (sort: AlbumSort, filters: Filters = NO_FILTERS) =>
   infiniteQueryOptions({
-    queryKey: ["albums", sort, genre],
+    queryKey: ["albums", sort, filters],
     queryFn: ({ pageParam }) =>
       unwrap(
         api.GET("/api/v1/albums", {
-          params: { query: { sort, genre, limit: PAGE, offset: pageParam } },
+          params: { query: { sort, ...filterParams(filters), limit: PAGE, offset: pageParam } },
         }),
       ),
     ...paging,
   });
 
-export const artistsQuery = infiniteQueryOptions({
-  queryKey: ["artists"],
-  queryFn: ({ pageParam }) =>
-    unwrap(api.GET("/api/v1/artists", { params: { query: { limit: PAGE, offset: pageParam } } })),
-  ...paging,
-});
-
-export const tracksQuery = (sort: TrackSort) =>
+export const artistsQuery = (filters: Filters = NO_FILTERS) =>
   infiniteQueryOptions({
-    queryKey: ["tracks", sort],
+    queryKey: ["artists", filters],
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/artists", {
+          params: { query: { ...filterParams(filters), limit: PAGE, offset: pageParam } },
+        }),
+      ),
+    ...paging,
+  });
+
+export const tracksQuery = (sort: TrackSort, filters: Filters = NO_FILTERS) =>
+  infiniteQueryOptions({
+    queryKey: ["tracks", sort, filters],
     queryFn: ({ pageParam }) =>
       unwrap(
         api.GET("/api/v1/tracks", {
-          params: { query: { sort, limit: PAGE, offset: pageParam } },
+          params: { query: { sort, ...filterParams(filters), limit: PAGE, offset: pageParam } },
         }),
       ),
     ...paging,

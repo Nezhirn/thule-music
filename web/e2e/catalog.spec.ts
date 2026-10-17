@@ -53,16 +53,15 @@ test("a compilation credits each track's artist", async ({ page }) => {
   await expect(tracks.getByRole("link")).toHaveText(["Mira Vale", "The Glass Harbor"]);
 });
 
-test("albums by genre and in the chosen order, kept in the address", async ({ page }) => {
+test("albums of a genre and in the chosen order, kept in the address", async ({ page }) => {
   await page.goto("/albums");
   await page.getByRole("combobox", { name: "Sort by" }).selectOption("Year");
   await expect(page).toHaveURL(/sort=year/);
   const cards = page.getByRole("main").getByRole("article");
   await expect(cards.first()).toContainText("Paper Moons"); // 2026, the newest
-  await page
-    .getByRole("navigation", { name: "Genre" })
-    .getByRole("link", { name: "Indie" })
-    .click();
+  const filters = page.getByRole("group", { name: "Filters" });
+  await filters.getByRole("button", { name: "Genre" }).click();
+  await page.getByRole("option", { name: /^Indie/ }).click();
   await expect(page).toHaveURL(/genre=Indie/);
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0)).toContainText("Low Tide"); // 2023
@@ -84,4 +83,79 @@ test("all tracks, by artist", async ({ page }) => {
   await expect(
     table.getByRole("row").nth(1).getByRole("link", { name: "Northern Lights" }),
   ).toBeVisible();
+});
+
+test("tracks filtered by artist, genre and album; back undoes the last", async ({ page }) => {
+  await page.goto("/tracks?sort=title");
+  const table = page.getByRole("table", { name: "Tracks" });
+  await expect(table.getByRole("row")).toHaveCount(18);
+  const filters = page.getByRole("group", { name: "Filters" });
+
+  // An artist found by typing: their own tracks, those they are a guest on, the compilation's.
+  await filters.getByRole("button", { name: "Artist" }).click();
+  await page.getByRole("combobox", { name: "Find: artist" }).fill("mira");
+  const choices = (facet: string) => page.getByRole("listbox", { name: facet }).getByRole("option");
+  await expect(choices("Artist")).toHaveText(["Mira Vale4"]);
+  await page.keyboard.press("Enter");
+  await expect(
+    filters.getByRole("button", { name: "Artist: Mira Vale", exact: true }),
+  ).toBeVisible();
+  await expect(table.getByRole("row")).toHaveCount(5);
+  await expect(page.getByText("4 tracks", { exact: true })).toBeVisible();
+
+  // The genres of what is left, those with the most first.
+  await filters.getByRole("button", { name: "Genre" }).click();
+  await expect(choices("Genre")).toHaveText(["All genres", "Pop3", "Electronic1"]);
+  await page.getByRole("option", { name: /^Pop/ }).click();
+  await expect(table.getByRole("row")).toHaveCount(4);
+
+  await filters.getByRole("button", { name: "Album" }).click();
+  await expect(choices("Album")).toHaveText([
+    "All albums",
+    "Paper MoonsMira Vale2",
+    "Summer MixVarious Artists1",
+  ]);
+  await page.getByRole("option", { name: /^Summer Mix/ }).click();
+  await expect(table.getByRole("row")).toHaveCount(2);
+  await expect(table.getByRole("row").nth(1)).toContainText("Heatwave");
+  await expect(page).toHaveURL(/sort=title&artist=.+&genre=Pop&album=/);
+
+  await page.goBack();
+  await expect(table.getByRole("row")).toHaveCount(4);
+  await expect(filters.getByRole("button", { name: "Album" })).toBeVisible();
+  await filters.getByRole("button", { name: "Clear filters" }).click();
+  await expect(table.getByRole("row")).toHaveCount(18);
+  await expect(page).toHaveURL(/\/tracks\?sort=title$/);
+});
+
+test("liked songs filtered: what the filters leave plays", async ({ page }) => {
+  await page.goto("/tracks?sort=title");
+  const table = page.getByRole("table", { name: "Tracks" });
+  for (const title of ["Paper Moon", "Polar Drift", "Heatwave"]) {
+    await table.getByRole("button", { name: `Like ${title}` }).click();
+  }
+  await page.goto("/liked");
+  const liked = page.getByRole("table", { name: "Liked songs" });
+  await expect(liked.getByRole("row")).toHaveCount(4);
+
+  const filters = page.getByRole("group", { name: "Filters" });
+  await filters.getByRole("button", { name: "Genre" }).click();
+  // Of the liked songs only.
+  await expect(page.getByRole("listbox", { name: "Genre" }).getByRole("option")).toHaveText([
+    "All genres",
+    "Pop2",
+    "Electronic1",
+  ]);
+  await page.getByRole("option", { name: /^Pop/ }).click();
+  await expect(liked.getByRole("row")).toHaveCount(3);
+  await expect(page.getByText("2 tracks", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Play Liked songs" }).click();
+  const player = page.getByRole("region", { name: "Player" });
+  await expect(player.getByText("Heatwave")).toBeVisible();
+  // A wide window shows the queue beside the page.
+  const next = page
+    .getByRole("complementary", { name: "Now playing" })
+    .getByRole("list", { name: "Up next" });
+  await expect(next.getByRole("listitem")).toHaveText([/Paper Moon/]);
 });

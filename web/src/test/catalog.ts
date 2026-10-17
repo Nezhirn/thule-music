@@ -1,5 +1,8 @@
 // A small catalogue for tests of the catalogue pages.
+import { http, HttpResponse } from "msw";
 import type { Schemas } from "../api/client";
+import { url } from "./api";
+import { server } from "./server";
 
 type Album = Schemas["AlbumOut"];
 type Track = Schemas["TrackOut"];
@@ -84,4 +87,43 @@ export function artistOut(artist: ArtistRef, extra: Partial<Schemas["ArtistOut"]
 
 export function page<T>(items: T[], total = items.length, offset = 0) {
   return { items, total, limit: 60, offset };
+}
+
+type FilterOption = Schemas["FilterOption"];
+
+/** The filters' choices, served as the server would: those matching `q`, and the one each
+ * is set to, named. Returns the query strings asked for, by facet. */
+export function mockFilterOptions(choices: {
+  artist?: FilterOption[];
+  album?: FilterOption[];
+  genre?: FilterOption[];
+}) {
+  const asked: Record<"artist" | "album" | "genre", string[]> = {
+    artist: [],
+    album: [],
+    genre: [],
+  };
+  const own = { artist: "artist_id", album: "album_id", genre: "genre" } as const;
+  for (const facet of ["artist", "album", "genre"] as const) {
+    server.use(
+      http.get(url(`/api/v1/filters/${facet}s`), ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        asked[facet].push(query.toString());
+        const q = (query.get("q") ?? "").toLowerCase();
+        const items = (choices[facet] ?? []).filter((o) => o.name.toLowerCase().includes(q));
+        const value = query.get(own[facet]);
+        const selected = (choices[facet] ?? []).find((o) => o.value === value);
+        return HttpResponse.json({
+          items,
+          total: items.length,
+          selected: selected ? { value: selected.value, name: selected.name, detail: null } : null,
+        });
+      }),
+    );
+  }
+  return asked;
+}
+
+export function option(value: string, name: string, count = 1, detail: string | null = null) {
+  return { value, name, detail, count };
 }

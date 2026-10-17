@@ -4,10 +4,13 @@ import { useId } from "react";
 import { useSearchParams } from "react-router";
 import { AlbumCard } from "../catalog/AlbumCard";
 import { ArtistCard } from "../catalog/ArtistCard";
+import { FilterBar, NothingFiltered } from "../catalog/FilterBar";
+import { isFiltered, type Facet, type Filters } from "../catalog/filters";
 import { LoadError } from "../catalog/LoadError";
 import { LoadMore } from "../catalog/LoadMore";
 import { PageLoading, RefreshFailed } from "../catalog/PageStatus";
 import { failedToLoad } from "../catalog/loaded";
+import { useFilters } from "../catalog/useFilters";
 import { useI18n } from "../i18n";
 import { favouriteAlbumsQuery, favouriteArtistsQuery } from "../likes/queries";
 import { EmptyState } from "../ui/EmptyState";
@@ -18,12 +21,18 @@ import styles from "./CatalogPage.module.css";
 
 type Shown = "albums" | "artists";
 
-/** Favourite albums or artists (which, in the address), newest first. */
+const FACETS: Record<Shown, readonly Facet[]> = {
+  albums: ["artist", "genre"],
+  artists: ["genre"],
+};
+
+/** Favourite albums or artists (which, in the address, with their filters), newest first. */
 export function FavoritesPage() {
   const { t } = useI18n();
   const label = useId();
   const [params, setParams] = useSearchParams();
   const shown: Shown = params.get("show") === "artists" ? "artists" : "albums";
+  const { filters, set, clear } = useFilters(FACETS[shown]);
   return (
     <>
       <PageHeader title={t.nav.favorites} />
@@ -39,23 +48,47 @@ export function FavoritesPage() {
           ]}
           value={shown}
           onChange={(value) =>
-            setParams(value === "albums" ? {} : { show: value }, { replace: true })
+            // A genre is one of both; an artist isn't.
+            setParams(
+              {
+                ...(value === "artists" && { show: value }),
+                ...(filters.genre && { genre: filters.genre }),
+              },
+              { replace: true },
+            )
           }
         />
+        <FilterBar
+          scope={shown === "albums" ? "liked_albums" : "liked_artists"}
+          facets={FACETS[shown]}
+          filters={filters}
+          onChange={set}
+          onClear={clear}
+        />
       </div>
-      {shown === "albums" ? <Albums /> : <Artists />}
+      {shown === "albums" ? (
+        <Albums filters={filters} onClear={clear} />
+      ) : (
+        <Artists filters={filters} onClear={clear} />
+      )}
     </>
   );
 }
 
-function Albums() {
+interface ListProps {
+  filters: Filters;
+  onClear(): void;
+}
+
+function Albums({ filters, onClear }: ListProps) {
   const { t } = useI18n();
-  const albums = useInfiniteQuery(favouriteAlbumsQuery);
+  const albums = useInfiniteQuery(favouriteAlbumsQuery(filters));
   if (albums.isPending) return <PageLoading />;
   if (failedToLoad(albums)) {
     return <LoadError error={albums.error} onRetry={() => void albums.refetch()} />;
   }
   if (albums.data.pages[0]?.total === 0) {
+    if (isFiltered(filters)) return <NothingFiltered onClear={onClear} />;
     return (
       <EmptyState icon={Star} title={t.likes.noAlbums}>
         {t.likes.noAlbumsText}
@@ -79,14 +112,15 @@ function Albums() {
   );
 }
 
-function Artists() {
+function Artists({ filters, onClear }: ListProps) {
   const { t } = useI18n();
-  const artists = useInfiniteQuery(favouriteArtistsQuery);
+  const artists = useInfiniteQuery(favouriteArtistsQuery(filters));
   if (artists.isPending) return <PageLoading />;
   if (failedToLoad(artists)) {
     return <LoadError error={artists.error} onRetry={() => void artists.refetch()} />;
   }
   if (artists.data.pages[0]?.total === 0) {
+    if (isFiltered(filters)) return <NothingFiltered onClear={onClear} />;
     return (
       <EmptyState icon={Star} title={t.likes.noArtists}>
         {t.likes.noArtistsText}

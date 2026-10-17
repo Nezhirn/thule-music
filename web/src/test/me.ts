@@ -28,10 +28,13 @@ export function mockLikes({
     const query = new URL(request.url).searchParams;
     const limit = Number(query.get("limit") ?? 60);
     const offset = Number(query.get("offset") ?? 0);
-    const newest = [...items].reverse().map((item) => ({ ...item, liked: true }));
+    const newest = [...items]
+      .reverse()
+      .filter((item) => matches(item, query))
+      .map((item) => ({ ...item, liked: true }));
     return HttpResponse.json({
       items: newest.slice(offset, offset + limit),
-      total: items.length,
+      total: newest.length,
       limit,
       offset,
     });
@@ -71,6 +74,28 @@ export function mockLikes({
       for (const item of items) known.set(item.id, item);
     },
   };
+}
+
+/** As the server filters the lists: tracks by artist (credited or the album's) and album,
+ * albums by artist and genre. */
+function matches(item: object, query: URLSearchParams): boolean {
+  const artist = query.get("artist_id");
+  const album = query.get("album_id");
+  const genre = query.get("genre")?.toLowerCase();
+  if ("duration_ms" in item) {
+    const track = item as Track;
+    if (artist && !track.artists.some((a) => a.id === artist) && track.album_artist.id !== artist) {
+      return false;
+    }
+    return !album || track.album.id === album;
+  }
+  if ("year" in item) {
+    const saved = item as Album;
+    return (
+      (!artist || saved.artist.id === artist) && (!genre || saved.genre?.toLowerCase() === genre)
+    );
+  }
+  return true;
 }
 
 type PlaylistDetail = Schemas["PlaylistDetail"];

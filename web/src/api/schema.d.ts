@@ -252,7 +252,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Artists */
+        /**
+         * List Artists
+         * @description `genre`: artists with an album of it, of their own or one they are credited on.
+         */
         get: operations["list_artists"];
         put?: never;
         post?: never;
@@ -299,7 +302,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Albums */
+        /**
+         * List Albums
+         * @description `artist_id`: the artist's own albums (they are its album artist).
+         */
         get: operations["list_albums"];
         put?: never;
         post?: never;
@@ -344,7 +350,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Tracks */
+        /**
+         * List Tracks
+         * @description `artist_id`: the tracks they are credited on, and those of their albums.
+         */
         get: operations["list_tracks"];
         put?: never;
         post?: never;
@@ -407,6 +416,71 @@ export interface paths {
          *     the two.
          */
         patch: operations["rename_genre"];
+        trace?: never;
+    };
+    "/api/v1/filters/artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Artist Filter Options
+         * @description The artists a list of tracks or albums can be filtered by, A to Z, with how many of
+         *     its items each leaves (the other filters set): of tracks, those credited and the album
+         *     artists; of albums, the album artists. `artist_id` is the one chosen.
+         */
+        get: operations["artist_filter_options"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filters/albums": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Album Filter Options
+         * @description The albums a list of tracks can be filtered by, A to Z, each with its artist and how
+         *     many of the tracks it holds (the other filters set); `q` matches either. `album_id` is
+         *     the one chosen.
+         */
+        get: operations["album_filter_options"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filters/genres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Genre Filter Options
+         * @description The genres a list can be filtered by, those leaving the most of it first (the other
+         *     filters set). Spellings differing in case are one genre. `genre` is the one chosen.
+         */
+        get: operations["genre_filter_options"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/library/stats": {
@@ -992,7 +1066,7 @@ export interface paths {
         };
         /**
          * List Liked Tracks
-         * @description The virtual "Liked Music" playlist, newest first.
+         * @description The virtual "Liked Music" playlist, newest first; filtered as GET /tracks is.
          */
         get: operations["list_liked_tracks"];
         put?: never;
@@ -1030,7 +1104,7 @@ export interface paths {
         };
         /**
          * List Liked Albums
-         * @description Saved albums, newest first.
+         * @description Saved albums, newest first; filtered as GET /albums is.
          */
         get: operations["list_liked_albums"];
         put?: never;
@@ -1068,7 +1142,7 @@ export interface paths {
         };
         /**
          * List Liked Artists
-         * @description Followed artists, newest first.
+         * @description Followed artists, newest first; filtered as GET /artists is.
          */
         get: operations["list_liked_artists"];
         put?: never;
@@ -1497,6 +1571,40 @@ export interface components {
             /** Detail */
             detail: string | components["schemas"]["ValidationIssue"][];
         };
+        /** FilterChoice */
+        FilterChoice: {
+            /** Value */
+            value: string;
+            /** Name */
+            name: string;
+            /** Detail */
+            detail: string | null;
+        };
+        /** FilterOption */
+        FilterOption: {
+            /** Value */
+            value: string;
+            /** Name */
+            name: string;
+            /** Detail */
+            detail: string | null;
+            /** Count */
+            count: number;
+        };
+        /** FilterOptions */
+        FilterOptions: {
+            /** Items */
+            items: components["schemas"]["FilterOption"][];
+            /** Total */
+            total: number;
+            selected: components["schemas"]["FilterChoice"] | null;
+        };
+        /**
+         * FilterScope
+         * @description The list a filter's choices are for.
+         * @enum {string}
+         */
+        FilterScope: "tracks" | "liked_tracks" | "albums" | "liked_albums" | "artists" | "liked_artists";
         /**
          * GenreDeletion
          * @enum {string}
@@ -2651,6 +2759,7 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 q?: string | null;
+                genre?: string | null;
             };
             header?: never;
             path?: never;
@@ -2781,6 +2890,7 @@ export interface operations {
                 sort?: components["schemas"]["AlbumSort"];
                 q?: string | null;
                 genre?: string | null;
+                artist_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -2913,6 +3023,9 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 sort?: components["schemas"]["TrackSort"];
+                artist_id?: string | null;
+                album_id?: string | null;
+                genre?: string | null;
             };
             header?: never;
             path?: never;
@@ -3116,6 +3229,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenreOut"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    artist_filter_options: {
+        parameters: {
+            query: {
+                scope: components["schemas"]["FilterScope"];
+                album_id?: string | null;
+                genre?: string | null;
+                artist_id?: string | null;
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterOptions"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    album_filter_options: {
+        parameters: {
+            query: {
+                scope: components["schemas"]["FilterScope"];
+                artist_id?: string | null;
+                genre?: string | null;
+                album_id?: string | null;
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterOptions"];
+                };
+            };
+            /** @description Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    genre_filter_options: {
+        parameters: {
+            query: {
+                scope: components["schemas"]["FilterScope"];
+                artist_id?: string | null;
+                album_id?: string | null;
+                genre?: string | null;
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterOptions"];
                 };
             };
             /** @description Error */
@@ -4320,6 +4541,9 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                artist_id?: string | null;
+                album_id?: string | null;
+                genre?: string | null;
             };
             header?: never;
             path?: never;
@@ -4410,6 +4634,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                artist_id?: string | null;
+                genre?: string | null;
             };
             header?: never;
             path?: never;
@@ -4500,6 +4726,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                genre?: string | null;
             };
             header?: never;
             path?: never;

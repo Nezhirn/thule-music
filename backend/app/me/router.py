@@ -11,6 +11,13 @@ from app.auth.models import User
 from app.db import utcnow
 from app.deps import CurrentUser, SessionDep
 from app.errors import ApiError, ErrorCode
+from app.library.filters import (
+    Filters,
+    GenreParam,
+    album_filters,
+    artist_filters,
+    track_filters,
+)
 from app.library.models import Album, Artist, Track
 from app.library.queries import (
     ALBUM_LOAD,
@@ -92,11 +99,21 @@ async def list_liked_tracks(
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
+    artist_id: uuid.UUID | None = None,
+    album_id: uuid.UUID | None = None,
+    genre: GenreParam = None,
 ) -> Page[TrackOut]:
-    """The virtual "Liked Music" playlist, newest first."""
+    """The virtual "Liked Music" playlist, newest first; filtered as GET /tracks is."""
+    where = [
+        TrackLike.user_id == user.id,
+        *track_filters(Filters(artist_id=artist_id, album_id=album_id, genre=genre)),
+    ]
     total = (
         await session.scalar(
-            select(func.count()).select_from(TrackLike).where(TrackLike.user_id == user.id)
+            select(func.count())
+            .select_from(TrackLike)
+            .join(Track, Track.id == TrackLike.track_id)
+            .where(*where)
         )
         or 0
     )
@@ -104,7 +121,7 @@ async def list_liked_tracks(
         await session.scalars(
             track_select()
             .join(TrackLike, TrackLike.track_id == Track.id)
-            .where(TrackLike.user_id == user.id)
+            .where(*where)
             .order_by(TrackLike.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -140,16 +157,25 @@ async def list_liked_albums(
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    artist_id: uuid.UUID | None = None,
+    genre: GenreParam = None,
 ) -> Page[AlbumOut]:
-    """Saved albums, newest first."""
+    """Saved albums, newest first; filtered as GET /albums is."""
+    where = [
+        AlbumLike.user_id == user.id,
+        *album_filters(Filters(artist_id=artist_id, genre=genre)),
+    ]
     total = await session.scalar(
-        select(func.count()).select_from(AlbumLike).where(AlbumLike.user_id == user.id)
+        select(func.count())
+        .select_from(AlbumLike)
+        .join(Album, Album.id == AlbumLike.album_id)
+        .where(*where)
     )
     albums = (
         await session.scalars(
             select(Album)
             .join(AlbumLike, AlbumLike.album_id == Album.id)
-            .where(AlbumLike.user_id == user.id)
+            .where(*where)
             .options(*ALBUM_LOAD)
             .order_by(AlbumLike.created_at.desc())
             .limit(limit)
@@ -186,16 +212,21 @@ async def list_liked_artists(
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    genre: GenreParam = None,
 ) -> Page[ArtistOut]:
-    """Followed artists, newest first."""
+    """Followed artists, newest first; filtered as GET /artists is."""
+    where = [ArtistLike.user_id == user.id, *artist_filters(Filters(genre=genre))]
     total = await session.scalar(
-        select(func.count()).select_from(ArtistLike).where(ArtistLike.user_id == user.id)
+        select(func.count())
+        .select_from(ArtistLike)
+        .join(Artist, Artist.id == ArtistLike.artist_id)
+        .where(*where)
     )
     artists = (
         await session.scalars(
             select(Artist)
             .join(ArtistLike, ArtistLike.artist_id == Artist.id)
-            .where(ArtistLike.user_id == user.id)
+            .where(*where)
             .order_by(ArtistLike.created_at.desc())
             .limit(limit)
             .offset(offset)

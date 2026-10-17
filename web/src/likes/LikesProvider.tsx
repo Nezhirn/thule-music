@@ -27,6 +27,8 @@ export function LikesProvider({ children }: { children: ReactNode }) {
         // Liked songs, Favourites: without it at once, with it on the next visit.
         if (!liked) dropFromLists(queryClient, ["likes", kind], id);
         refreshLater(queryClient, ["likes", kind]);
+        // What the filters of the liked lists offer.
+        refreshLater(queryClient, ["filters"]);
       },
     }),
   );
