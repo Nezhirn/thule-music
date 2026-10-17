@@ -17,6 +17,7 @@ import { EmptyState } from "../ui/EmptyState";
 import {
   filterOptionsQuery,
   isFiltered,
+  NO_FILTERS,
   type Facet,
   type FilterScope,
   type Filters,
@@ -36,7 +37,7 @@ interface Props {
 export function FilterBar({ scope, facets, filters, onChange, onClear }: Props) {
   const { t } = useI18n();
   return (
-    <div role="group" aria-label={t.filters.label} className={styles.bar}>
+    <div role="group" aria-label={t.filters.label} className={styles.bar} data-filter-bar>
       {facets.map((facet) => (
         <FilterPicker
           key={facet}
@@ -47,7 +48,14 @@ export function FilterBar({ scope, facets, filters, onChange, onClear }: Props) 
         />
       ))}
       {isFiltered(filters) && (
-        <button type="button" className={styles.reset} onClick={onClear}>
+        <button
+          type="button"
+          className={styles.reset}
+          onClick={() => {
+            onClear();
+            focusFilters();
+          }}
+        >
           {t.filters.clear}
         </button>
       )}
@@ -61,11 +69,24 @@ export function NothingFiltered({ onClear }: { onClear(): void }) {
   return (
     <EmptyState icon={ListFilter} title={t.filters.nothing}>
       {t.filters.nothingText}{" "}
-      <Button variant="secondary" size="small" className={styles.clearAll} onClick={onClear}>
+      <Button
+        variant="secondary"
+        size="small"
+        className={styles.clearAll}
+        onClick={() => {
+          onClear();
+          focusFilters();
+        }}
+      >
         {t.filters.clear}
       </Button>
     </EmptyState>
   );
+}
+
+/** On the first filter's button: the button clearing them goes away once they are. */
+function focusFilters() {
+  document.querySelector<HTMLElement>("[data-filter-bar] button")?.focus();
 }
 
 /** Where what is inside `element` stops showing on the right: the edge of the nearest
@@ -108,39 +129,55 @@ function FilterPicker({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [q, setQ] = useState("");
-  const [active, setActive] = useState(0);
+  // Where the arrows or the pointer moved; until then, the current choice.
+  const [moved, setMoved] = useState<number | null>(null);
+  // The choice just picked, named until the server names it.
+  const [picked, setPicked] = useState<Entry | null>(null);
+  // Genres are one in any case ("rock" in a link, "Rock" in the list).
+  const same = (a: string | null, b: string | null) =>
+    facet === "genre" ? a?.toLowerCase() === b?.toLowerCase() : a === b;
 
   const close = useCallback((refocus: boolean) => {
     setOpen(false);
     setText("");
     setQ("");
+    setMoved(null);
     if (refocus) button.current?.focus();
   }, []);
 
-  // Closed: only to name what it is set to.
-  const options = useQuery({
-    ...filterOptionsQuery(facet, scope, filters, open ? q : ""),
-    enabled: open || value !== null,
-    placeholderData: open ? keepPreviousData : undefined,
+  // What it is set to, named: asked for apart from the choices (none of them, `limit` 0),
+  // so another filter changing doesn't take the name away while they load.
+  const named = useQuery({
+    ...filterOptionsQuery(facet, scope, { ...NO_FILTERS, [facet]: value }, "", 0),
+    enabled: value !== null,
   });
-  // Not found (an artist since removed): its id, rather than nothing.
   const name =
-    options.data?.selected?.name ?? (facet === "genre" || options.isSuccess ? value : null);
+    named.data?.selected?.name ??
+    (picked && same(picked.value, value) ? picked.name : null) ??
+    // Not found (an artist since removed): its id, rather than nothing.
+    (facet === "genre" || !named.isPending ? value : null);
+
+  const options = useQuery({
+    ...filterOptionsQuery(facet, scope, filters, q),
+    enabled: open,
+    placeholderData: keepPreviousData,
+  });
 
   const entries: Entry[] = [
     // What is typed is looked for: Enter picks the first found, not "all".
     ...(q ? [] : [{ value: null, name: t.filters.all[facet] }]),
     ...(options.data?.items ?? []),
   ];
+  const chosen = entries.findIndex((entry) => same(entry.value, value));
   // The list may have become shorter than where the arrows were.
-  const current = Math.min(active, entries.length - 1);
+  const current = Math.min(moved ?? (!q && chosen >= 0 ? chosen : 0), entries.length - 1);
 
   useEffect(() => {
     const next = clean(text);
     if (next === q) return;
     const timer = window.setTimeout(() => {
       setQ(next);
-      setActive(0);
+      setMoved(null);
     }, DEBOUNCE);
     return () => window.clearTimeout(timer);
   }, [text, q]);
@@ -170,38 +207,29 @@ function FilterPicker({
     document.getElementById(`${id}-${current}`)?.scrollIntoView?.({ block: "nearest" });
   }, [open, current, id]);
 
-  const toggle = () => {
-    if (open) {
-      close(false);
-      return;
-    }
-    // The current choice active, so arrows move on from it.
-    const at = (options.data?.items ?? []).findIndex((item) => item.value === value);
-    setActive(value && at >= 0 ? at + 1 : 0);
-    setOpen(true);
-  };
-
-  const pick = (next: string | null) => {
+  const pick = (entry: Entry) => {
     close(true);
-    if (next !== value) onChange(next);
+    if (same(entry.value, value)) return;
+    setPicked(entry);
+    onChange(entry.value);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
     const last = entries.length - 1;
     const keys: Record<string, () => void> = {
-      ArrowDown: () => setActive(Math.min(current + 1, last)),
-      ArrowUp: () => setActive(Math.max(current - 1, 0)),
+      ArrowDown: () => setMoved(Math.min(current + 1, last)),
+      ArrowUp: () => setMoved(Math.max(current - 1, 0)),
       Enter: () => {
         // Typed faster than it is looked for: it is looked for now, and a second Enter
         // picks from what is found.
         const typed = clean(text);
         if (typed !== q) {
           setQ(typed);
-          setActive(0);
+          setMoved(null);
           return;
         }
         const entry = entries[current];
-        if (entry && !options.isPlaceholderData) pick(entry.value);
+        if (entry && !options.isPlaceholderData) pick(entry);
       },
       Escape: () => close(true),
     };
@@ -225,7 +253,7 @@ function FilterPicker({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-controls={open ? listId : undefined}
-          onClick={toggle}
+          onClick={() => (open ? close(false) : setOpen(true))}
         >
           {value ? (
             <>
@@ -281,13 +309,13 @@ function FilterPicker({
                 key={entry.value ?? ""}
                 id={`${id}-${i}`}
                 role="option"
-                aria-selected={entry.value === value}
+                aria-selected={same(entry.value, value)}
                 data-active={i === current || undefined}
                 className={styles.option}
                 // The focus stays in the field.
                 onPointerDown={(event) => event.preventDefault()}
-                onPointerMove={() => setActive(i)}
-                onClick={() => pick(entry.value)}
+                onPointerMove={() => setMoved(i)}
+                onClick={() => pick(entry)}
               >
                 <span className={styles.names}>
                   <span className={styles.name}>{entry.name}</span>
@@ -297,7 +325,7 @@ function FilterPicker({
                 <Check
                   className={styles.check}
                   aria-hidden="true"
-                  data-shown={entry.value === value || undefined}
+                  data-shown={same(entry.value, value) || undefined}
                 />
               </li>
             ))}

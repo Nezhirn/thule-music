@@ -67,3 +67,24 @@ for (const [device, viewport] of [
     await expectAccessible(page);
   });
 }
+
+test.describe("touch screens", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test("fields are 16px, so iOS doesn't zoom into them", async ({ page, baseURL }) => {
+    await page.goto("/login");
+    expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+    const fontSize = (field: ReturnType<typeof page.getByRole>) =>
+      field.evaluate((element) => getComputedStyle(element).fontSize);
+    expect(await fontSize(page.getByLabel("Username"))).toBe("16px");
+
+    await signIn(page, await createUser(baseURL!));
+    await page.goto("/tracks");
+    expect(await fontSize(page.getByRole("combobox", { name: "Sort by" }))).toBe("16px");
+    await page
+      .getByRole("group", { name: "Filters" })
+      .getByRole("button", { name: "Artist" })
+      .tap();
+    expect(await fontSize(page.getByRole("combobox", { name: "Find: artist" }))).toBe("16px");
+  });
+});

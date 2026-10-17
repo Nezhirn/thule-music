@@ -1,5 +1,5 @@
 // A small catalogue for tests of the catalogue pages.
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import type { Schemas } from "../api/client";
 import { url } from "./api";
 import { server } from "./server";
@@ -93,11 +93,14 @@ type FilterOption = Schemas["FilterOption"];
 
 /** The filters' choices, served as the server would: those matching `q`, and the one each
  * is set to, named. Returns the query strings asked for, by facet. */
-export function mockFilterOptions(choices: {
-  artist?: FilterOption[];
-  album?: FilterOption[];
-  genre?: FilterOption[];
-}) {
+export function mockFilterOptions(
+  choices: {
+    artist?: FilterOption[];
+    album?: FilterOption[];
+    genre?: FilterOption[];
+  },
+  { wait = 0 }: { wait?: number } = {},
+) {
   const asked: Record<"artist" | "album" | "genre", string[]> = {
     artist: [],
     album: [],
@@ -106,13 +109,20 @@ export function mockFilterOptions(choices: {
   const own = { artist: "artist_id", album: "album_id", genre: "genre" } as const;
   for (const facet of ["artist", "album", "genre"] as const) {
     server.use(
-      http.get(url(`/api/v1/filters/${facet}s`), ({ request }) => {
+      http.get(url(`/api/v1/filters/${facet}s`), async ({ request }) => {
+        await delay(wait);
         const query = new URL(request.url).searchParams;
         asked[facet].push(query.toString());
         const q = (query.get("q") ?? "").toLowerCase();
-        const items = (choices[facet] ?? []).filter((o) => o.name.toLowerCase().includes(q));
+        const items =
+          query.get("limit") === "0"
+            ? []
+            : (choices[facet] ?? []).filter((o) => o.name.toLowerCase().includes(q));
         const value = query.get(own[facet]);
-        const selected = (choices[facet] ?? []).find((o) => o.value === value);
+        // Genres in any case, as the server takes them.
+        const selected = (choices[facet] ?? []).find((o) =>
+          facet === "genre" ? o.value.toLowerCase() === value?.toLowerCase() : o.value === value,
+        );
         return HttpResponse.json({
           items,
           total: items.length,

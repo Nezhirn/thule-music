@@ -11,6 +11,8 @@ import {
   album,
   albumDetail,
   artistOut,
+  mockFilterOptions,
+  option,
   page,
   track,
 } from "../test/catalog";
@@ -282,6 +284,25 @@ describe("albums", () => {
       ]),
     );
   });
+});
+
+test("a genre's actions are on its own page, not on some of its albums", async () => {
+  mockAccount({ me: { role: "admin" } });
+  server.use(
+    http.get(url("/api/v1/albums"), () => HttpResponse.json(page([SUMMER]))),
+    http.get(url("/api/v1/genres"), () => HttpResponse.json([{ name: "Pop", album_count: 5 }])),
+  );
+  mockFilterOptions({ artist: [option(VARIOUS.id, VARIOUS.name)] });
+  const { user } = renderSignedIn("/albums?genre=pop");
+  expect(await screen.findByRole("heading", { level: 1, name: "Pop" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "More for Pop" })).toBeInTheDocument();
+
+  const filters = screen.getByRole("group", { name: "Filters" });
+  await user.click(within(filters).getByRole("button", { name: "Artist" }));
+  await user.click(await screen.findByRole("option", { name: /^Various Artists/ }));
+  await within(filters).findByRole("button", { name: "Artist: Various Artists" });
+  expect(screen.getByRole("heading", { level: 1, name: "Pop" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "More for Pop" })).not.toBeInTheDocument();
 });
 
 describe("tracks", () => {

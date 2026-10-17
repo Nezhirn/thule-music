@@ -160,7 +160,10 @@ async def _options(
     order: Callable[[Subquery], tuple],
     limit: int,
 ) -> FilterOptions:
-    """`counted`: each choice's value, name, detail and count, and `key` to sort by."""
+    """`counted`: each choice's value, name, detail and count, and `key` to sort by. With
+    `limit` 0, none are counted: the caller only names what the filter is set to."""
+    if limit == 0:
+        return FilterOptions(items=[], total=0)
     rows = counted.subquery()
     total = await session.scalar(select(func.count()).select_from(rows)) or 0
     items = [
@@ -175,7 +178,8 @@ def _by_name(rows: Subquery) -> tuple:
 
 
 Q = Annotated[str | None, Query(max_length=200)]
-Limit = Annotated[int, Query(ge=1, le=200)]
+# 0: no choices, only `selected` (to name a filter that is set).
+Limit = Annotated[int, Query(ge=0, le=200)]
 
 
 @router.get("/artists", response_model=FilterOptions)

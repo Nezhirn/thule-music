@@ -36,12 +36,14 @@ export function AlbumsPage() {
   const total = albums.data?.pages[0]?.total;
   // The genre as the list spells it, with all its albums (whoever they are by).
   const found = genres.data?.find((g) => g.name.toLowerCase() === genre?.toLowerCase());
-  const subject = found ? { name: found.name, albumCount: found.album_count } : null;
+  // Its actions act on all its albums: offered on its own page, not on some of them.
+  const subject =
+    found && !filters.artist ? { name: found.name, albumCount: found.album_count } : null;
   return (
     <>
       <PageHeader
-        title={subject?.name ?? genre ?? t.nav.albums}
-        documentTitle={genre ? `${subject?.name ?? genre} — ${t.nav.albums}` : t.nav.albums}
+        title={found?.name ?? genre ?? t.nav.albums}
+        documentTitle={genre ? `${found?.name ?? genre} — ${t.nav.albums}` : t.nav.albums}
         actions={
           edits &&
           subject && (

@@ -136,6 +136,16 @@ async def test_artist_choices(client, admin, user, library):
     page = (await client.get("/filters/artists?scope=liked_tracks", headers=user)).json()
     assert (options(page), page["total"]) == ([], 0)
 
+    # Only named: nothing counted.
+    page = (
+        await client.get(f"/filters/artists?scope=tracks&artist_id={mila}&limit=0", headers=admin)
+    ).json()
+    assert page == {
+        "items": [],
+        "total": 0,
+        "selected": {"value": mila, "name": "Mila", "detail": None},
+    }
+
     resp = await client.get("/filters/artists?scope=artists", headers=admin)
     assert (resp.status_code, resp.json()["code"]) == (422, "validation_error")
 

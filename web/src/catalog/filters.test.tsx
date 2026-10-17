@@ -176,6 +176,56 @@ test("Enter typed before the search ran looks for it first, not picks from the o
   ).toBeInTheDocument();
 });
 
+test("a filter keeps its name while another one changes, and the one picked is named at once", async () => {
+  mockAccount();
+  mockTracks();
+  // Slow choices: a name that waited for them would be gone meanwhile.
+  mockFilterOptions(CHOICES, { wait: 300 });
+  const { user } = renderSignedIn(`/tracks?artist=${KITE.id}`);
+  const filters = await screen.findByRole("group", { name: "Filters" });
+  await within(filters).findByRole("button", { name: "Artist: DJ Kite" });
+
+  await user.click(within(filters).getByRole("button", { name: "Genre" }));
+  await user.click(await screen.findByRole("option", { name: /^Pop/ }, { timeout: 2000 }));
+  expect(within(filters).getByRole("button", { name: "Genre: Pop" })).toHaveFocus();
+  expect(within(filters).getByRole("button", { name: "Artist: DJ Kite" })).toBeInTheDocument();
+});
+
+test("Clear filters leaves the focus on the filters, not on the page", async () => {
+  mockAccount();
+  mockTracks();
+  mockFilterOptions(CHOICES);
+  const { user } = renderSignedIn("/tracks?genre=Ambient");
+  const filters = await screen.findByRole("group", { name: "Filters" });
+  await user.click(await within(filters).findByRole("button", { name: "Clear filters" }));
+  expect(within(filters).getByRole("button", { name: "Artist" })).toHaveFocus();
+
+  // From a list the filters left empty too.
+  await user.click(within(filters).getByRole("button", { name: "Genre" }));
+  await user.click(await screen.findByRole("option", { name: /^Pop/ }));
+  await screen.findByText("Nothing matches these filters");
+  const [, inEmptyState] = screen.getAllByRole("button", { name: "Clear filters" });
+  await user.click(inEmptyState!);
+  expect(within(filters).getByRole("button", { name: "Artist" })).toHaveFocus();
+});
+
+test("a genre in another case is the same genre", async () => {
+  mockAccount();
+  const asked = mockTracks();
+  mockFilterOptions(CHOICES);
+  const { user } = renderSignedIn("/tracks?genre=ambient");
+  const filters = await screen.findByRole("group", { name: "Filters" });
+  await within(filters).findByRole("button", { name: "Genre: Ambient" });
+  await user.click(within(filters).getByRole("button", { name: "Genre: Ambient" }));
+  const ambient = await screen.findByRole("option", { name: /^Ambient/ });
+  expect(ambient).toHaveAttribute("aria-selected", "true");
+  expect(ambient).toHaveAttribute("data-active");
+  const before = asked.length;
+  // Picked again: nothing changes.
+  await user.click(ambient);
+  expect(asked).toHaveLength(before);
+});
+
 test("a list the filters leave empty says so, and clears them", async () => {
   mockAccount();
   mockTracks();
@@ -248,7 +298,7 @@ test("Favourites: albums filtered by artist and genre; switching to artists keep
       within(filters)
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label") ?? b.textContent),
-    ).toEqual(["Genre: pop", "Remove filter Genre: pop", "Clear filters"]),
+    ).toEqual(["Genre: Pop", "Remove filter Genre: Pop", "Clear filters"]),
   );
   await waitFor(() =>
     expect(asked.at(-1)).toBe("/api/v1/me/likes/artists?genre=pop&limit=60&offset=0"),

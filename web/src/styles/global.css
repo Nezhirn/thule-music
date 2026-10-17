@@ -130,6 +130,16 @@ textarea {
   color: inherit;
 }
 
+/* iOS Safari zooms into a field whose text is smaller than 16px when it gets the focus, and
+   stays zoomed. On touch screens, fields are 16px whatever a component sets. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 h1,
 h2,
 h3,

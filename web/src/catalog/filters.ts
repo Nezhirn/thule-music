@@ -57,14 +57,21 @@ export const OPTIONS = 50;
 
 /** The choices of the `facet` filter on the `scope` list, the other filters set, matching
  * `q`; and what it is set to, named. */
-export const filterOptionsQuery = (facet: Facet, scope: FilterScope, filters: Filters, q: string) =>
+export const filterOptionsQuery = (
+  facet: Facet,
+  scope: FilterScope,
+  filters: Filters,
+  q: string,
+  // 0: none, only what it is set to.
+  limit = OPTIONS,
+) =>
   queryOptions({
-    queryKey: ["filters", facet, scope, filters, q],
+    queryKey: ["filters", facet, scope, filters, q, limit],
     queryFn: ({ signal }) =>
       unwrap(
         api.GET(PATHS[facet], {
           params: {
-            query: { scope, ...filterParams(filters), ...(q && { q }), limit: OPTIONS },
+            query: { scope, ...filterParams(filters), ...(q && { q }), limit },
           },
           signal,
         }),
