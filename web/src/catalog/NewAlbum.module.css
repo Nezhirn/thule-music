@@ -109,3 +109,16 @@
     font-size: var(--text-lg);
   }
 }
+
+/* Narrower than a phone (a page zoomed in): no room beside the cover, the text goes under it. */
+@media (max-width: 359px) {
+  .card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+  }
+
+  .card .art {
+    width: 96px;
+  }
+}

@@ -302,3 +302,23 @@ tbody:first-of-type .group th {
     display: none;
   }
 }
+
+/* Narrower than a phone (a page zoomed in): the room goes to the titles. */
+@media (max-width: 359px) {
+  td,
+  thead th {
+    padding-inline: 4px;
+  }
+
+  .number {
+    width: 28px;
+  }
+
+  .duration {
+    width: 48px;
+  }
+
+  .actions {
+    width: 36px;
+  }
+}

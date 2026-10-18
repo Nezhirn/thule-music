@@ -220,3 +220,22 @@ test("phones have a mini player that opens the full player", async ({ page }) =>
   await expectAccessible(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
+
+test("the full player fits a page zoomed in", async ({ page }) => {
+  // Firefox's zoom at 150% on a 375px iPhone leaves the page 250px.
+  await page.setViewportSize({ width: 250, height: 640 });
+  await openAlbum(page, "Northern Lights");
+  await page.getByRole("button", { name: "Play Northern Lights" }).click();
+  await bar(page)
+    .getByRole("button", { name: /Open the player/ })
+    .click();
+
+  const player = page.getByRole("dialog", { name: "Now playing" });
+  await expect(player.getByRole("link", { name: "Polar Drift" })).toBeVisible();
+  // The last of the controls and the like button, at the right edge.
+  await expect(player.getByRole("button", { name: /^Repeat/ })).toBeInViewport({ ratio: 1 });
+  await expect(player.getByRole("button", { name: "Like Polar Drift" })).toBeInViewport({
+    ratio: 1,
+  });
+  expect(await player.evaluate((dialog) => dialog.scrollWidth - dialog.clientWidth)).toBe(0);
+});

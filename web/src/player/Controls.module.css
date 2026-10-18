@@ -26,6 +26,28 @@
   height: 28px;
 }
 
+/* Narrower than a phone (a page zoomed in): smaller, so all five fit. */
+@media (max-width: 359px) {
+  .large {
+    gap: 0;
+  }
+
+  .large .toggle {
+    width: 36px;
+    height: 36px;
+  }
+
+  .large .skip {
+    width: 40px;
+    height: 40px;
+  }
+
+  .large .playLarge {
+    width: 56px;
+    height: 56px;
+  }
+}
+
 /* On: the accent, and a dot under it, so it isn't told by colour alone. */
 .toggle {
   position: relative;

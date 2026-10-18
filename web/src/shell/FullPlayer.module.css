@@ -25,8 +25,11 @@
   background: rgb(0 0 0 / 0.7);
 }
 
+/* One column, never wider than the screen: what doesn't fit shrinks rather than pushing the
+   rest off it. */
 .body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   max-width: 480px;
   margin: 0 auto;
@@ -92,4 +95,11 @@
 
 .info > :first-child {
   flex: 1;
+}
+
+/* Narrower than a phone: a page zoomed in (Firefox's zoom, the system's larger text). */
+@media (max-width: 359px) {
+  .body {
+    padding-inline: 16px;
+  }
 }
